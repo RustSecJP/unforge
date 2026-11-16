@@ -1,0 +1,5 @@
+/target
+/testdata/bin
+/fuzz/target
+/fuzz/corpus/differential
+/fuzz/artifacts

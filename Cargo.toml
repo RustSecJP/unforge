@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/unforge-elf", "crates/unforge-cli", "crates/unforge-testgen"]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hina-kura49/unforge"
+
+[workspace.dependencies]
+zerocopy = { version = "0.8", features = ["derive"] }
+unforge-elf = { path = "crates/unforge-elf" }
+# 答え合わせ専用（dev-dependencies からだけ使う）
+object = { version = "0.41", default-features = false, features = ["read_core", "elf", "std"] }
+goblin = { version = "0.10", default-features = false, features = ["elf32", "elf64", "endian_fd", "std"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

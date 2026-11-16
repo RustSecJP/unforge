@@ -1,0 +1,21 @@
+# Pinned toolchain for building, testing and for the real-binary corpus
+# (testdata/build.sh checks that `rustc -vV` reports this release and refuses
+# to build otherwise). The fuzz harness still runs on nightly through an
+# explicit `cargo +nightly fuzz run parse`, which overrides this file.
+#
+# rust-lld (used to link every host-built Linux executable in testdata/bin) and
+# the self-contained musl CRT objects ship inside this toolchain and its musl
+# target components, so pinning the release also pins the linker; the exact
+# versions and hashes are written to testdata/bin/MANIFEST.txt.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = [
+    "x86_64-unknown-linux-musl",
+    "x86_64-unknown-linux-gnu",
+    "i686-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "powerpc64-unknown-linux-gnu",
+    "s390x-unknown-linux-gnu",
+]

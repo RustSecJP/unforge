@@ -1,0 +1,21 @@
+[package]
+name = "unforge"
+description = "Read Rust binaries as Rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "unforge"
+path = "src/main.rs"
+
+[dependencies]
+unforge-elf.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# Test oracle only: section/symbol counts and names are compared against it.
+object = { workspace = true }

@@ -1,0 +1,20 @@
+[package]
+name = "unforge-elf"
+description = "Panic-free ELF reader built on zerocopy (part of unforge)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zerocopy.workspace = true
+
+[dev-dependencies]
+object.workspace = true
+goblin.workspace = true
+# Counting global allocator for tests/alloc_bounds.rs (implementing
+# GlobalAlloc ourselves would need `unsafe`, which this workspace forbids).
+dhat = "0.3.3"
+
+[lints]
+workspace = true

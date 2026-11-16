@@ -1,0 +1,15 @@
+[package]
+name = "unforge-testgen"
+description = "Generator for the anomalous-ELF test corpus (testdata/anomalous)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "unforge-testgen"
+path = "src/main.rs"
+
+[lints]
+workspace = true

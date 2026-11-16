@@ -1,0 +1,33 @@
+[package]
+name = "unforge-elf-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+unforge-elf = { path = "../crates/unforge-elf" }
+# Oracles for fuzz_targets/differential.rs only (same versions and features as
+# the workspace dev-dependencies).
+object = { version = "0.41", default-features = false, features = ["read_core", "elf", "std"] }
+goblin = { version = "0.10", default-features = false, features = ["elf32", "elf64", "endian_fd", "std"] }
+
+# Standalone: not a member of the parent workspace (which excludes "fuzz").
+[workspace]
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+bench = false
