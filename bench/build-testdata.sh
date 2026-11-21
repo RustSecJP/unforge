@@ -44,7 +44,11 @@ if [[ -z "$BENCH" ]]; then
     done
 fi
 
-RUSTC="$(cd "$REPO" && rustup which rustc 2> /dev/null || command -v rustc)"
+if command -v rustup > /dev/null 2>&1; then
+    RUSTC="$(cd "$REPO" && rustup which rustc)" || exit 2
+else
+    RUSTC="$(command -v rustc)" || exit 2
+fi
 SYSROOT="$("$RUSTC" --print sysroot)"
 HOST="$("$RUSTC" -vV | sed -n 's/^host: //p')"
 LLD="$SYSROOT/lib/rustlib/$HOST/bin/rust-lld"
