@@ -348,7 +348,9 @@ pub fn linked_dependencies(
         }
     }
     for p in registry_seen {
-        if !is_self(p) && !is_std_crate(&p.name) {
+        // Registry paths of std's own copies were already excluded by
+        // `classify_path` (they are `/rust/deps/...` or `/cargo/registry/...`).
+        if !is_self(p) {
             out.insert(p.clone());
         }
     }
@@ -780,5 +782,49 @@ mod tests {
     fn cu_names() {
         assert_eq!(absolute("src/main.rs", Some("/b")), "/b/src/main.rs");
         assert_eq!(absolute("/x/y.rs", Some("/b")), "/x/y.rs");
+    }
+
+    /// End to end on a real file: this test binary (built with debug info
+    /// in the default test profile; skipped without it).
+    #[test]
+    fn truth_of_this_test_binary() {
+        let exe = std::env::current_exe().unwrap();
+        let data = std::fs::read(&exe).unwrap();
+        let obj = object::File::parse(&*data).unwrap();
+        if obj.section_by_name(".debug_info").is_none() {
+            eprintln!("skipped: {} has no DWARF", exe.display());
+            return;
+        }
+        let t = extract(&data, "self", None).unwrap();
+        let find = |suffix: &str| {
+            t.functions
+                .iter()
+                .find(|f| f.name.as_deref().is_some_and(|n| n.ends_with(suffix)))
+                .unwrap_or_else(|| panic!("no function named *{suffix}"))
+        };
+        // Our own code (a path outside any registry, no meta: user).
+        let f = find("score::score_functions");
+        assert_eq!(
+            (f.group.as_str(), f.krate.as_deref()),
+            ("user", Some("unforge_bench"))
+        );
+        // A crates.io dependency, by its registry path.
+        assert!(t.functions.iter().any(|f| f.group == "dep:gimli"
+            && f.name.as_deref().is_some_and(|n| n.starts_with("<gimli::"))));
+        assert!(t.dependencies.iter().any(|d| d.name == "gimli"));
+        // The standard library.
+        assert!(
+            t.functions
+                .iter()
+                .any(|f| f.group == "std" && f.krate.as_deref() == Some("core"))
+        );
+        assert!(t.rustc_commit.as_deref().is_some_and(|c| c.len() == 40));
+        // Starts are unique and sorted.
+        assert!(t.functions.windows(2).all(|w| w[0].start < w[1].start));
+
+        // With all symbols present, the baseline finds every start.
+        let a = unforge_analysis::Analysis::new(&data).unwrap();
+        let s = crate::score::score(&t, &a.functions(), &a.dependencies());
+        assert!(s.m1_functions.starts.recall > 99.0, "{:?}", s.m1_functions);
     }
 }
