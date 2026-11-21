@@ -1,0 +1,1945 @@
+{
+  "schema": "unforge-bench-results/1",
+  "date": "2026-11-21",
+  "analysis_api_version": 1,
+  "split": "all",
+  "corpus": "bench/corpus/testdata",
+  "overall": {
+    "items": 30,
+    "failed": 0,
+    "m1_start_precision": 100.0,
+    "m1_start_recall": 0.15365695894489967,
+    "m1_start_f1": 0.3068122590624975,
+    "m1_byte_f1": 0.0,
+    "m2_accuracy": 0.0,
+    "m2_user_vs_library": 0.0,
+    "m2_coverage": 0.0,
+    "m3_precision": 100.0,
+    "m3_recall": 100.0,
+    "m3_f1": 100.0,
+    "m3_name_f1": 100.0,
+    "total": 33.43560408635417,
+    "total_strict": 33.43560408635417
+  },
+  "per_split": {
+    "eval": {
+      "items": 18,
+      "failed": 0,
+      "m1_start_precision": 100.0,
+      "m1_start_recall": 0.15303718544329337,
+      "m1_start_f1": 0.3055773914435384,
+      "m1_byte_f1": 0.0,
+      "m2_accuracy": 0.0,
+      "m2_user_vs_library": 0.0,
+      "m2_coverage": 0.0,
+      "m3_precision": 100.0,
+      "m3_recall": 100.0,
+      "m3_f1": 100.0,
+      "m3_name_f1": 100.0,
+      "total": 33.43519246381451,
+      "total_strict": 33.43519246381451
+    },
+    "train": {
+      "items": 12,
+      "failed": 0,
+      "m1_start_precision": 100.0,
+      "m1_start_recall": 0.154586619197309,
+      "m1_start_f1": 0.3086645604909363,
+      "m1_byte_f1": 0.0,
+      "m2_accuracy": 0.0,
+      "m2_user_vs_library": 0.0,
+      "m2_coverage": 0.0,
+      "m3_precision": 100.0,
+      "m3_recall": 100.0,
+      "m3_f1": 100.0,
+      "m3_name_f1": 100.0,
+      "total": 33.43622152016365,
+      "total_strict": 33.43622152016365
+    }
+  },
+  "per_variant": {
+    "o0": {
+      "items": 10,
+      "failed": 0,
+      "m1_start_precision": 100.0,
+      "m1_start_recall": 0.12170984127010462,
+      "m1_start_f1": 0.2431164022572368,
+      "m1_byte_f1": 0.0,
+      "m2_accuracy": 0.0,
+      "m2_user_vs_library": 0.0,
+      "m2_coverage": 0.0,
+      "m3_precision": 100.0,
+      "m3_recall": 100.0,
+      "m3_f1": 100.0,
+      "m3_name_f1": 100.0,
+      "total": 33.414372134085745,
+      "total_strict": 33.414372134085745
+    },
+    "o3": {
+      "items": 10,
+      "failed": 0,
+      "m1_start_precision": 100.0,
+      "m1_start_recall": 0.14790247633334405,
+      "m1_start_f1": 0.2953578444128156,
+      "m1_byte_f1": 0.0,
+      "m2_accuracy": 0.0,
+      "m2_user_vs_library": 0.0,
+      "m2_coverage": 0.0,
+      "m3_precision": 100.0,
+      "m3_recall": 100.0,
+      "m3_f1": 100.0,
+      "m3_name_f1": 100.0,
+      "total": 33.4317859481376,
+      "total_strict": 33.4317859481376
+    },
+    "oz-fat-abort": {
+      "items": 10,
+      "failed": 0,
+      "m1_start_precision": 100.0,
+      "m1_start_recall": 0.19135855923125034,
+      "m1_start_f1": 0.3819625305174404,
+      "m1_byte_f1": 0.0,
+      "m2_accuracy": 0.0,
+      "m2_user_vs_library": 0.0,
+      "m2_coverage": 0.0,
+      "m3_precision": 100.0,
+      "m3_recall": 100.0,
+      "m3_f1": 100.0,
+      "m3_name_f1": 100.0,
+      "total": 33.46065417683915,
+      "total_strict": 33.46065417683915
+    }
+  },
+  "items": [
+    {
+      "id": "collections-gnu-o0",
+      "crate": "collections",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 833,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.12004801920768307,
+            "f1": 0.2398081534772182
+          },
+          "truth_bytes": 289736,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.4132693844924,
+        "total_strict": 33.4132693844924
+      },
+      "error": null
+    },
+    {
+      "id": "collections-gnu-o3",
+      "crate": "collections",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 565,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.17699115044247787,
+            "f1": 0.35335689045936397
+          },
+          "truth_bytes": 250523,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.45111896348646,
+        "total_strict": 33.45111896348646
+      },
+      "error": null
+    },
+    {
+      "id": "collections-gnu-oz-fat-abort",
+      "crate": "collections",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 430,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.23255813953488372,
+            "f1": 0.46403712296983757
+          },
+          "truth_bytes": 224149,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.48801237432328,
+        "total_strict": 33.48801237432328
+      },
+      "error": null
+    },
+    {
+      "id": "collections-musl-o0",
+      "crate": "collections",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 1031,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.09699321047526673,
+            "f1": 0.19379844961240308
+          },
+          "truth_bytes": 370149,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.39793281653747,
+        "total_strict": 33.39793281653747
+      },
+      "error": null
+    },
+    {
+      "id": "collections-musl-o3",
+      "crate": "collections",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 763,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1310615989515072,
+            "f1": 0.2617801047120419
+          },
+          "truth_bytes": 330936,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.42059336823735,
+        "total_strict": 33.42059336823735
+      },
+      "error": null
+    },
+    {
+      "id": "collections-musl-oz-fat-abort",
+      "crate": "collections",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 608,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.16447368421052633,
+            "f1": 0.32840722495894914
+          },
+          "truth_bytes": 298403,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.44280240831965,
+        "total_strict": 33.44280240831965
+      },
+      "error": null
+    },
+    {
+      "id": "enums-gnu-o0",
+      "crate": "enums",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 690,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.14492753623188406,
+            "f1": 0.2894356005788712
+          },
+          "truth_bytes": 274227,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.42981186685962,
+        "total_strict": 33.42981186685962
+      },
+      "error": null
+    },
+    {
+      "id": "enums-gnu-o3",
+      "crate": "enums",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 590,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1694915254237288,
+            "f1": 0.338409475465313
+          },
+          "truth_bytes": 262957,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.44613649182177,
+        "total_strict": 33.44613649182177
+      },
+      "error": null
+    },
+    {
+      "id": "enums-gnu-oz-fat-abort",
+      "crate": "enums",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 453,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.22075055187637968,
+            "f1": 0.44052863436123346
+          },
+          "truth_bytes": 234279,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.480176211453745,
+        "total_strict": 33.480176211453745
+      },
+      "error": null
+    },
+    {
+      "id": "enums-musl-o0",
+      "crate": "enums",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 888,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.11261261261261261,
+            "f1": 0.2249718785151856
+          },
+          "truth_bytes": 354640,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.40832395950506,
+        "total_strict": 33.40832395950506
+      },
+      "error": null
+    },
+    {
+      "id": "enums-musl-o3",
+      "crate": "enums",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 788,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.12690355329949238,
+            "f1": 0.25348542458808615
+          },
+          "truth_bytes": 343370,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.417828474862695,
+        "total_strict": 33.417828474862695
+      },
+      "error": null
+    },
+    {
+      "id": "enums-musl-oz-fat-abort",
+      "crate": "enums",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "train",
+      "score": {
+        "m1_functions": {
+          "truth": 632,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.15822784810126583,
+            "f1": 0.315955766192733
+          },
+          "truth_bytes": 308632,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.438651922064246,
+        "total_strict": 33.438651922064246
+      },
+      "error": null
+    },
+    {
+      "id": "ffi_statics-gnu-o0",
+      "crate": "ffi_statics",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 799,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1251564455569462,
+            "f1": 0.25000000000000006
+          },
+          "truth_bytes": 280414,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.416666666666664,
+        "total_strict": 33.416666666666664
+      },
+      "error": null
+    },
+    {
+      "id": "ffi_statics-gnu-o3",
+      "crate": "ffi_statics",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 629,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1589825119236884,
+            "f1": 0.3174603174603175
+          },
+          "truth_bytes": 258981,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.439153439153436,
+        "total_strict": 33.439153439153436
+      },
+      "error": null
+    },
+    {
+      "id": "ffi_statics-gnu-oz-fat-abort",
+      "crate": "ffi_statics",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 469,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.21321961620469082,
+            "f1": 0.42553191489361697
+          },
+          "truth_bytes": 231334,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.47517730496454,
+        "total_strict": 33.47517730496454
+      },
+      "error": null
+    },
+    {
+      "id": "ffi_statics-musl-o0",
+      "crate": "ffi_statics",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 1018,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.09823182711198428,
+            "f1": 0.1962708537782139
+          },
+          "truth_bytes": 364161,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.39875695125941,
+        "total_strict": 33.39875695125941
+      },
+      "error": null
+    },
+    {
+      "id": "ffi_statics-musl-o3",
+      "crate": "ffi_statics",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 848,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1179245283018868,
+            "f1": 0.23557126030624265
+          },
+          "truth_bytes": 342728,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.41185708676875,
+        "total_strict": 33.41185708676875
+      },
+      "error": null
+    },
+    {
+      "id": "ffi_statics-musl-oz-fat-abort",
+      "crate": "ffi_statics",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 685,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.145985401459854,
+            "f1": 0.29154518950437314
+          },
+          "truth_bytes": 314187,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.43051506316812,
+        "total_strict": 33.43051506316812
+      },
+      "error": null
+    },
+    {
+      "id": "panics-gnu-o0",
+      "crate": "panics",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 623,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.16051364365971107,
+            "f1": 0.3205128205128205
+          },
+          "truth_bytes": 248105,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.44017094017094,
+        "total_strict": 33.44017094017094
+      },
+      "error": null
+    },
+    {
+      "id": "panics-gnu-o3",
+      "crate": "panics",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 556,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.17985611510791366,
+            "f1": 0.3590664272890485
+          },
+          "truth_bytes": 241078,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.45302214242968,
+        "total_strict": 33.45302214242968
+      },
+      "error": null
+    },
+    {
+      "id": "panics-gnu-oz-fat-abort",
+      "crate": "panics",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 412,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.24271844660194175,
+            "f1": 0.4842615012106538
+          },
+          "truth_bytes": 216283,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.49475383373689,
+        "total_strict": 33.49475383373689
+      },
+      "error": null
+    },
+    {
+      "id": "panics-musl-o0",
+      "crate": "panics",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 821,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1218026796589525,
+            "f1": 0.24330900243309003
+          },
+          "truth_bytes": 328518,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.41443633414436,
+        "total_strict": 33.41443633414436
+      },
+      "error": null
+    },
+    {
+      "id": "panics-musl-o3",
+      "crate": "panics",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 754,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.13262599469496023,
+            "f1": 0.26490066225165565
+          },
+          "truth_bytes": 321491,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.42163355408389,
+        "total_strict": 33.42163355408389
+      },
+      "error": null
+    },
+    {
+      "id": "panics-musl-oz-fat-abort",
+      "crate": "panics",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 590,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.1694915254237288,
+            "f1": 0.338409475465313
+          },
+          "truth_bytes": 290518,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.44613649182177,
+        "total_strict": 33.44613649182177
+      },
+      "error": null
+    },
+    {
+      "id": "traits-gnu-o0",
+      "crate": "traits",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 757,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.13210039630118892,
+            "f1": 0.2638522427440634
+          },
+          "truth_bytes": 280637,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.42128408091469,
+        "total_strict": 33.42128408091469
+      },
+      "error": null
+    },
+    {
+      "id": "traits-gnu-o3",
+      "crate": "traits",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 616,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.16233766233766234,
+            "f1": 0.32414910858995133
+          },
+          "truth_bytes": 267432,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.44138303619665,
+        "total_strict": 33.44138303619665
+      },
+      "error": null
+    },
+    {
+      "id": "traits-gnu-oz-fat-abort",
+      "crate": "traits",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 471,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.21231422505307856,
+            "f1": 0.42372881355932207
+          },
+          "truth_bytes": 236638,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.47457627118644,
+        "total_strict": 33.47457627118644
+      },
+      "error": null
+    },
+    {
+      "id": "traits-musl-o0",
+      "crate": "traits",
+      "version": "0.0.0",
+      "variant": "o0",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 955,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.10471204188481675,
+            "f1": 0.20920502092050206
+          },
+          "truth_bytes": 361050,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.40306834030684,
+        "total_strict": 33.40306834030684
+      },
+      "error": null
+    },
+    {
+      "id": "traits-musl-o3",
+      "crate": "traits",
+      "version": "0.0.0",
+      "variant": "o3",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 814,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.12285012285012285,
+            "f1": 0.24539877300613497
+          },
+          "truth_bytes": 347845,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.415132924335374,
+        "total_strict": 33.415132924335374
+      },
+      "error": null
+    },
+    {
+      "id": "traits-musl-oz-fat-abort",
+      "crate": "traits",
+      "version": "0.0.0",
+      "variant": "oz-fat-abort",
+      "split": "eval",
+      "score": {
+        "m1_functions": {
+          "truth": 650,
+          "predicted": 1,
+          "matched": 1,
+          "starts": {
+            "precision": 100.0,
+            "recall": 0.15384615384615385,
+            "f1": 0.3072196620583717
+          },
+          "truth_bytes": 310991,
+          "predicted_bytes": 0,
+          "overlap_bytes": 0,
+          "bytes": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "m2_attribution": {
+          "matched": 1,
+          "correct": 0,
+          "accuracy": 0.0,
+          "user_vs_library_correct": 0,
+          "user_vs_library_accuracy": 0.0,
+          "coverage": 0.0,
+          "by_group": {
+            "std": [
+              1,
+              0
+            ]
+          }
+        },
+        "m3_dependencies": {
+          "truth": 1,
+          "predicted": 1,
+          "matched": 1,
+          "pairs": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "names": {
+            "precision": 100.0,
+            "recall": 100.0,
+            "f1": 100.0
+          },
+          "missed": [],
+          "wrong": []
+        },
+        "total": 33.43573988735279,
+        "total_strict": 33.43573988735279
+      },
+      "error": null
+    }
+  ]
+}
