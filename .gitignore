@@ -3,3 +3,4 @@
 /fuzz/target
 /fuzz/corpus/differential
 /fuzz/artifacts
+/bench/corpus

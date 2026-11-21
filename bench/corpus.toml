@@ -1,0 +1,128 @@
+# Benchmark corpus spec (v0). Read by .github/workflows/bench-corpus.yml
+# through bench/scripts/corpus.py.
+#
+# Every crate here is a well-known binary crate from crates.io, pinned to an
+# exact version and built with `cargo install --locked` (the Cargo.lock
+# published with the crate), so the dependency versions are fixed too. They
+# were picked to resemble the dependency profile of Rust malware:
+#   networking  reqwest / hyper / tokio / rustls (xh, oha, miniserve)
+#   crypto      chacha20poly1305 / x25519 / scrypt / sha2 (rage), aes via zip
+#               (miniserve, ouch), sha2 (miniserve, xh)
+#   compression flate2 / zip / zstd / brotli (ouch, bat, xh, miniserve)
+#   encoding    base64 / serde_json (xh, oha, hyperfine, dust, bottom)
+#   system      sysinfo / walkdir / ignore / rayon (dust, bottom, fd, ripgrep)
+#   CLI         clap (almost all)
+# `rsa` is not covered by any crate in v0 (TODO: find a reputable binary
+# crate that links it).
+#
+# The build scripts and proc macros of these crates run ONLY in GitHub
+# Actions (bench-corpus.yml), never on a developer machine.
+#
+# Train/eval split: decided by `unforge-bench split <crate>` from the crate
+# name alone (see bench/README.md). It is printed here for reference only.
+
+schema = "unforge-bench-corpus/1"
+
+# Targets every crate is built for.
+targets = ["x86_64-unknown-linux-gnu"]
+# TODO(v1): "aarch64-unknown-linux-gnu" (cross linker or an arm64 runner).
+
+# Settings shared by every variant (cargo profile `release`, set through
+# CARGO_PROFILE_RELEASE_* environment variables, which take precedence over
+# the crate's own [profile.release]).
+[common]
+codegen_units = 1
+debug = 2          # full DWARF: the ground truth comes from it
+strip = "none"     # stripping is done afterwards with objcopy --strip-all
+
+# Build variants. `enabled = false` ones are defined but not built in v0.
+[[variant]]
+name = "o0"
+opt_level = "0"
+lto = "off"
+panic = "unwind"
+enabled = true
+
+[[variant]]
+name = "o3"
+opt_level = "3"
+lto = "off"
+panic = "unwind"
+enabled = true
+
+# Size-optimized, fully inlined, no unwinding: the most common "release"
+# profile seen in Rust malware.
+[[variant]]
+name = "oz-fat-abort"
+opt_level = "z"
+lto = "fat"
+panic = "abort"
+enabled = true
+
+[[variant]]
+name = "o2-fat"
+opt_level = "2"
+lto = "fat"
+panic = "unwind"
+enabled = false
+
+# crate = package name on crates.io; split as printed by `unforge-bench split`.
+[[crate]]
+name = "ripgrep"      # rg: regex, memchr, ignore/walkdir, serde_json, jemalloc  (train)
+version = "15.2.0"
+
+[[crate]]
+name = "fd-find"      # fd: clap, ignore, regex, jiff, nix                      (eval)
+version = "10.5.2"
+
+[[crate]]
+name = "bat"          # syntect, flate2, serde, git2 (C), clap                 (eval)
+version = "0.26.1"
+
+[[crate]]
+name = "hyperfine"    # clap, serde_json, csv, rand, rust_decimal              (train)
+version = "2.0.0"
+
+[[crate]]
+name = "xh"           # reqwest, hyper, tokio, rustls, base64, flate2, sha2    (train)
+version = "0.26.3"
+
+[[crate]]
+name = "miniserve"    # actix-web, tokio, zip, sha2, rustls, libflate          (train)
+version = "0.35.0"
+
+[[crate]]
+name = "oha"          # tokio, hyper, rustls, base64, serde_json, rusqlite     (train)
+version = "1.17.0"
+
+[[crate]]
+name = "du-dust"      # dust: sysinfo, rayon, clap, serde_json                 (eval)
+version = "1.2.7"
+
+[[crate]]
+name = "tokei"        # ignore, rayon, serde_json, grep-searcher               (train)
+version = "15.0.0"
+
+[[crate]]
+name = "zoxide"       # clap, serde, bincode, askama                           (train)
+version = "0.10.0"
+
+[[crate]]
+name = "sd"           # regex, rayon, memmap2, clap                            (eval)
+version = "1.0.0"
+
+[[crate]]
+name = "rage"         # age: chacha20poly1305, x25519, scrypt, hmac, sha2      (eval)
+version = "0.12.1"
+
+[[crate]]
+name = "ouch"         # flate2, zip, zstd (C), bzip2, lz4, brotli, tar         (train)
+version = "0.8.3"
+
+[[crate]]
+name = "bottom"       # btm: sysinfo, serde_json, ratatui, crossterm           (train)
+version = "0.15.0"
+
+[[crate]]
+name = "git-delta"    # delta: git2 (C), syntect, sysinfo, serde_json         (eval)
+version = "0.21.2"

@@ -1,0 +1,163 @@
+# Builds the benchmark corpus (bench/README.md): real crates.io binary crates
+# from bench/corpus.toml plus the repository's own testdata/src programs, in
+# several build variants, each as a DWARF build, a stripped copy, ground
+# truth and build metadata. Everything ends up in one artifact,
+# `bench-corpus`, together with the baseline score of the current commit.
+#
+# SAFETY: building crates.io crates runs their build scripts and proc macros
+# (third-party code). That happens ONLY here, never on a developer machine.
+# The jobs therefore get no secrets, a read-only token
+# (`permissions: contents: read`), and a checkout that does not keep the
+# token (`persist-credentials: false`); crates are built in $RUNNER_TEMP,
+# outside the checkout. Treat the binaries in the artifact as untrusted:
+# analyze them, never execute them.
+
+name: bench-corpus
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 03:17 UTC.
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-corpus
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      crates: ${{ steps.spec.outputs.crates }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: spec
+        run: echo "crates=$(python3 -I bench/scripts/corpus.py bench/corpus.toml matrix)" >> "$GITHUB_OUTPUT"
+
+  # unforge-bench is our own code; it is built once and shared, before any
+  # third-party code runs on a runner.
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build unforge-bench (toolchain from rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p unforge-bench
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tools
+          path: target/release/unforge-bench
+          retention-days: 1
+
+  build:
+    needs: [prepare, tools]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    # One crate failing (or timing out) must not fail the run.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        crate: ${{ fromJSON(needs.prepare.outputs.crates) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tools
+          path: ${{ runner.temp }}/tools
+      - name: Install the pinned toolchain
+        run: |
+          channel="$(sed -n 's/^channel *= *"\(.*\)".*/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --target x86_64-unknown-linux-gnu
+          chmod +x "$RUNNER_TEMP/tools/unforge-bench"
+      - name: Build ${{ matrix.crate.name }} ${{ matrix.crate.version }} (third-party build scripts run here)
+        env:
+          CRATE: ${{ matrix.crate.name }}
+          VERSION: ${{ matrix.crate.version }}
+        run: |
+          bash bench/scripts/build-crate.sh "$CRATE" "$VERSION" "$RUNNER_TEMP/out" "$RUNNER_TEMP/tools/unforge-bench"
+          ls -la "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: corpus-${{ matrix.crate.name }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: warn
+          retention-days: 3
+
+  # The repository's own programs (no third-party code), same layout.
+  testdata:
+    needs: [tools]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tools
+          path: ${{ runner.temp }}/tools
+      - name: Build testdata/src variants
+        run: |
+          rustup toolchain install
+          chmod +x "$RUNNER_TEMP/tools/unforge-bench"
+          bash bench/build-testdata.sh --out "$RUNNER_TEMP/out" --bench "$RUNNER_TEMP/tools/unforge-bench"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-testdata
+          path: ${{ runner.temp }}/out
+          retention-days: 3
+
+  collect:
+    needs: [build, testdata]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: corpus-*
+          merge-multiple: true
+          path: corpus
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tools
+          path: ${{ runner.temp }}/tools
+      - name: Index and baseline score
+        run: |
+          chmod +x "$RUNNER_TEMP/tools/unforge-bench"
+          find corpus -name '*.meta.json' | wc -l
+          cat corpus/FAILED-*.txt 2> /dev/null || true
+          (cd corpus && sha256sum -- *.debug *.stripped > SHA256SUMS) || true
+          cp bench/corpus.toml corpus/corpus.toml
+          git rev-parse HEAD > corpus/UNFORGE_COMMIT
+          mkdir -p results
+          "$RUNNER_TEMP/tools/unforge-bench" run corpus --out-dir results | tee results/summary.txt
+          cp results/* corpus/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-corpus
+          path: corpus
+          retention-days: 30
+          compression-level: 6
