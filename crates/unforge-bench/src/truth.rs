@@ -159,6 +159,7 @@ pub fn extract(data: &[u8], file_name: &str, meta: Option<&Meta>) -> Result<Trut
 
     // Functions from DWARF.
     let mut by_start: BTreeMap<u64, TruthFunction> = BTreeMap::new();
+    // Crates with dependency code in the binary (not std's vendored copies).
     let mut seen_crates: BTreeSet<String> = BTreeSet::new();
     let mut registry_seen: BTreeSet<Package> = BTreeSet::new();
     for u in &units {
@@ -167,7 +168,12 @@ pub fn extract(data: &[u8], file_name: &str, meta: Option<&Meta>) -> Result<Trut
         {
             registry_seen.insert(Package { name, version });
         }
-        if let Some(k) = &u.krate {
+        if let Some(k) = &u.krate
+            && matches!(
+                ctx.unit_kinds.get(&normalize_crate(k)),
+                Some(Group::Dependency(_))
+            )
+        {
             seen_crates.insert(normalize_crate(k));
         }
     }
@@ -181,10 +187,10 @@ pub fn extract(data: &[u8], file_name: &str, meta: Option<&Meta>) -> Result<Trut
         {
             registry_seen.insert(Package { name, version });
         }
-        if let Some(k) = &info.krate {
+        let group = ctx.group(info.krate.as_deref(), info.decl_path.as_deref());
+        if let (Some(k), Group::Dependency(_)) = (&info.krate, &group) {
             seen_crates.insert(k.clone());
         }
-        let group = ctx.group(info.krate.as_deref(), info.decl_path.as_deref());
         let tf = TruthFunction {
             start: f.start,
             size: f.size,
@@ -310,7 +316,9 @@ pub fn extract(data: &[u8], file_name: &str, meta: Option<&Meta>) -> Result<Trut
 /// - its `<name>-<version>` directory appears in a source path of the debug
 ///   info (a CU root or a function's declaration), or
 /// - no version of it appears in a path, but its crate name is the crate of
-///   a CU or of a function (code with no path of its own, e.g. generated).
+///   a dependency CU or of a dependency function (code with no path of its
+///   own, e.g. generated). Crates that `std` vendors (`addr2line`, `memchr`,
+///   ...) are only counted when their code is not the standard library's.
 ///
 /// Registry packages seen in paths but missing from the lock are kept too
 /// (and are all there is when the build had no lock file). The built package
