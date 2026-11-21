@@ -47,6 +47,9 @@ pub const STD_CRATES: &[&str] = &[
     "r_efi",
     "fortanix_sgx_abi",
     "hermit_abi",
+    // Not a crate: the namespace of the allocator and panic shims that rustc
+    // generates (`__rustc::__rust_alloc`, `__rustc::rust_begin_unwind`).
+    "__rustc",
 ];
 
 /// Whether `name` (a crate name, `-` or `_` spelling) is one of [`STD_CRATES`].
