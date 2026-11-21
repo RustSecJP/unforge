@@ -11,7 +11,9 @@
 //! Addresses outside the executable sections (linker tombstones for
 //! discarded code: 0, -1, -2) are dropped. Function symbols in `.symtab`
 //! with no DWARF entry (C runtime start files, libc in static binaries,
-//! assembly) are added with origin `symtab`.
+//! assembly) are added with origin `symtab`, and the ELF entry point with
+//! origin `entry` when neither covers it (musl's `_start` is an untyped
+//! symbol).
 //!
 //! # Crate and group
 //!
@@ -233,6 +235,27 @@ pub fn extract(data: &[u8], file_name: &str, meta: Option<&Meta>) -> Result<Trut
                 krate,
                 group: group.label(),
                 origin: "symtab".to_owned(),
+            },
+        );
+    }
+
+    // The entry point is code even when its symbol is untyped (musl's
+    // `_start` is `STT_NOTYPE`, written in assembly).
+    let entry = obj.entry();
+    if entry != 0 && in_text(entry) && !by_start.contains_key(&entry) {
+        let name = obj
+            .symbols()
+            .find(|s| s.address() == entry && s.is_definition())
+            .and_then(|s| s.name().ok().filter(|n| !n.is_empty()).map(str::to_owned));
+        by_start.insert(
+            entry,
+            TruthFunction {
+                start: entry,
+                size: 0,
+                name,
+                krate: None,
+                group: Group::Std.label(),
+                origin: "entry".to_owned(),
             },
         );
     }

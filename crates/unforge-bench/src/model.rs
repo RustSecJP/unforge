@@ -122,6 +122,7 @@ pub struct TruthFunction {
     /// `user`, `std`, `dep:<crate>` ([`unforge_analysis::Group::label`]).
     pub group: String,
     /// `dwarf` (a `DW_TAG_subprogram` with an address) or `symtab` (a
-    /// function symbol with no DWARF entry, e.g. C runtime or assembly).
+    /// function symbol with no DWARF entry, e.g. C runtime or assembly), or
+    /// `entry` (the ELF entry point when neither describes it; size 0).
     pub origin: String,
 }
