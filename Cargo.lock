@@ -329,6 +329,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-analysis"
+version = "0.1.0"
+dependencies = [
+ "rustc-demangle",
+ "unforge-elf",
+]
+
+[[package]]
 name = "unforge-elf"
 version = "0.1.0"
 dependencies = [

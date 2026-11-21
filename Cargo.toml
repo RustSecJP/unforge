@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/unforge-elf", "crates/unforge-cli", "crates/unforge-testgen"]
+members = [
+    "crates/unforge-elf",
+    "crates/unforge-cli",
+    "crates/unforge-testgen",
+    "crates/unforge-analysis",
+]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -12,9 +17,13 @@ repository = "https://github.com/hina-kura49/unforge"
 [workspace.dependencies]
 zerocopy = { version = "0.8", features = ["derive"] }
 unforge-elf = { path = "crates/unforge-elf" }
+unforge-analysis = { path = "crates/unforge-analysis" }
 # 答え合わせ専用（dev-dependencies からだけ使う）
 object = { version = "0.41", default-features = false, features = ["read_core", "elf", "std"] }
 goblin = { version = "0.10", default-features = false, features = ["elf32", "elf64", "endian_fd", "std"] }
+# 解析（unforge-analysis）用。dev-dependencies 経由で既に Cargo.lock にある版で、
+# 新しいサードパーティのコードは増やさない。
+rustc-demangle = "0.1.28"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

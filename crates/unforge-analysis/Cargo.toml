@@ -1,0 +1,14 @@
+[package]
+name = "unforge-analysis"
+description = "Analysis results of a Rust binary: functions and dependencies (part of unforge)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unforge-elf.workspace = true
+rustc-demangle.workspace = true
+
+[lints]
+workspace = true
