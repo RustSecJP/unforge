@@ -1,0 +1,25 @@
+[package]
+name = "unforge-bench"
+description = "Benchmark for unforge: ground truth from DWARF and scoring of the analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "unforge-bench"
+path = "src/main.rs"
+
+[dependencies]
+unforge-analysis.workspace = true
+# The ground truth is read from DWARF with independent readers (the same
+# crates the loader's tests use as oracles), not with unforge itself.
+object.workspace = true
+gimli.workspace = true
+rustc-demangle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

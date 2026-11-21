@@ -5,6 +5,7 @@ members = [
     "crates/unforge-cli",
     "crates/unforge-testgen",
     "crates/unforge-analysis",
+    "crates/unforge-bench",
 ]
 exclude = ["fuzz"]
 
@@ -21,9 +22,12 @@ unforge-analysis = { path = "crates/unforge-analysis" }
 # 答え合わせ専用（dev-dependencies からだけ使う）
 object = { version = "0.41", default-features = false, features = ["read_core", "elf", "std"] }
 goblin = { version = "0.10", default-features = false, features = ["elf32", "elf64", "endian_fd", "std"] }
-# 解析（unforge-analysis）用。dev-dependencies 経由で既に Cargo.lock にある版で、
-# 新しいサードパーティのコードは増やさない。
+# 解析と採点（unforge-analysis / unforge-bench）用。どれも dev-dependencies 経由で
+# 既に Cargo.lock にある版で、新しいサードパーティのコードは増やさない。
 rustc-demangle = "0.1.28"
+gimli = { version = "0.32", default-features = false, features = ["read"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

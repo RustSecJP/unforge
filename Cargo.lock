@@ -337,6 +337,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-bench"
+version = "0.1.0"
+dependencies = [
+ "gimli",
+ "object 0.41.0",
+ "rustc-demangle",
+ "serde",
+ "serde_json",
+ "unforge-analysis",
+]
+
+[[package]]
 name = "unforge-elf"
 version = "0.1.0"
 dependencies = [
