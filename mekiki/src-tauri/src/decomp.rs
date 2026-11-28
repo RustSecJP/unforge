@@ -17,6 +17,9 @@ use std::time::{Duration, Instant};
 pub const TIMEOUT: Duration = Duration::from_secs(60);
 /// The helper is restarted after this many requests, to give back memory.
 const MAX_REQUESTS: u32 = 200;
+/// ... or once it holds more than this much memory (KB). Ghidra keeps what
+/// a large function needed even after the function is done.
+const MAX_RSS_KB: u64 = 1_500_000;
 /// Output lines longer than this are cut (hostile names).
 const MAX_LINE: usize = 64 * 1024;
 
@@ -37,6 +40,8 @@ struct Running {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     requests: u32,
+    /// Resident memory the helper last reported (KB)
+    rss_kb: u64,
     /// Output language the helper is set to (`rust` or `c`)
     lang: &'static str,
 }
@@ -103,7 +108,7 @@ impl Decompiler {
             .language
             .clone()
             .ok_or("Decompiling is only available for x86 and x86-64 files for now.")?;
-        if self.running.as_ref().is_some_and(|r| r.requests >= MAX_REQUESTS) {
+        if self.running.as_ref().is_some_and(|r| r.requests >= MAX_REQUESTS || r.rss_kb > MAX_RSS_KB) {
             self.stop();
         }
         if self.running.is_none() {
@@ -163,7 +168,7 @@ fn start(helper: &Path, specs: &Path, file: &Path, language: &str, setup: &str) 
     let mut stdin = child.stdin.take().ok_or("no stdin")?;
     let stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
     stdin.write_all(setup.as_bytes()).map_err(|e| e.to_string())?;
-    Ok(Running { child: Arc::new(Mutex::new(child)), stdin, stdout, requests: 0, lang: "rust" })
+    Ok(Running { child: Arc::new(Mutex::new(child)), stdin, stdout, requests: 0, rss_kb: 0, lang: "rust" })
 }
 
 fn request(r: &mut Running, addr: u64, lang: &'static str) -> Result<(String, u64), String> {
@@ -182,7 +187,10 @@ fn request(r: &mut Running, addr: u64, lang: &'static str) -> Result<(String, u6
             return Err("Cancelled.".to_owned());
         }
         if let Some(rest) = line.strip_prefix("@@END ") {
-            let ms = rest.trim().trim_end_matches("ms").parse().unwrap_or(0);
+            // "@@END <ms>ms <rss>kb"
+            let mut parts = rest.split_whitespace();
+            let ms = parts.next().and_then(|p| p.trim_end_matches("ms").parse().ok()).unwrap_or(0);
+            r.rss_kb = parts.next().and_then(|p| p.trim_end_matches("kb").parse().ok()).unwrap_or(0);
             return Ok((code, ms));
         }
         if let Some(rest) = line.strip_prefix("@@ERROR ") {

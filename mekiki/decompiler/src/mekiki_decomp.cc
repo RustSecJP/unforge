@@ -8,7 +8,8 @@
 //   ptr <slot> <value>                        8-byte pointer the loader writes at slot (relocation)
 //   ext <slot> <name>                         slot points to the imported symbol <name>
 //   lang <rust|c>                             output language for the next decompiles (default rust)
-//   decompile <addr>                          code for the function at addr, then "@@END <ms>ms"
+//   decompile <addr>                          code for the function at addr, then
+//                                             "@@END <ms>ms <rss>kb" (rss: resident memory, 0 if unknown)
 // Errors are reported as "@@ERROR <message>". All numbers are hex.
 #include "sleigh_arch.hh"
 #include "printrust.hh"
@@ -111,6 +112,15 @@ public:
   }
 };
 
+// Resident memory of this process in KB (Linux /proc), so Mekiki can restart
+// a helper that grew too large; 0 where unknown.
+static long residentKb() {
+  std::ifstream f("/proc/self/statm");
+  long pages = 0, resident = 0;
+  if (!(f >> pages >> resident)) return 0;
+  return resident * 4;  // 4 KB pages
+}
+
 extern "C" int mekiki_decomp_main(int argc, char **argv) {
   if (argc < 4) { cerr << "usage: mekiki-decomp <specdir> <file> <target>\n"; return 2; }
   AttributeId::initialize();
@@ -139,6 +149,11 @@ extern "C" int mekiki_decomp_main(int argc, char **argv) {
     // Like Ghidra's "Respect Read-only Flags" (on by default there): values in
     // read-only memory, including relocated GOT slots, are treated as constants.
     arch->readonlypropagate = true;
+    // Ghidra allows 100000 instructions per function. When flow runs away
+    // (unknown function bounds, data decoded as code), reaching that costs
+    // gigabytes; real Rust functions stay far below 30000 (a 45 KB function
+    // is about 12000).
+    arch->max_instructions = 30000;
     arch->setPrintLanguage(lang);
     Scope *global = arch->symboltab->getGlobalScope();
     for (auto &s : syms) {
@@ -148,6 +163,7 @@ extern "C" int mekiki_decomp_main(int argc, char **argv) {
       if (f != nullptr && isNoReturnName(s.second)) f->getFuncProto().setNoReturn(true);
     }
   };
+  Funcdata *fd = nullptr;  // the function being decompiled, freed on errors too
   while (getline(cin, line)) {
     istringstream in(line);
     string cmd;
@@ -175,7 +191,7 @@ extern "C" int mekiki_decomp_main(int argc, char **argv) {
         auto t0 = chrono::steady_clock::now();
         Address addr(arch->getDefaultCodeSpace(), a);
         Scope *global = arch->symboltab->getGlobalScope();
-        Funcdata *fd = global->findFunction(addr);
+        fd = global->findFunction(addr);
         if (fd == nullptr) {
           ostringstream nm; nm << "FUN_" << hex << a;
           fd = global->addFunction(addr, nm.str())->getFunction();
@@ -188,12 +204,16 @@ extern "C" int mekiki_decomp_main(int argc, char **argv) {
         arch->print->docFunction(fd);
         auto ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0).count();
         arch->clearAnalysis(fd);  // free this function's analysis
-        cout << "@@END " << ms << "ms" << endl;
+        cout << "@@END " << ms << "ms " << residentKb() << "kb" << endl;
       }
     } catch (LowlevelError &e) {
       cout << "@@ERROR " << e.explain << endl;
     } catch (std::exception &e) {
       cout << "@@ERROR " << e.what() << endl;
+    }
+    if (fd != nullptr && arch != nullptr) {
+      try { arch->clearAnalysis(fd); } catch (...) {}
+      fd = nullptr;
     }
   }
   return 0;

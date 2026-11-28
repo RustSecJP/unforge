@@ -8,9 +8,11 @@
 //   - casts:        `x as i32`
 //   - control flow: `if c {`, `while c {`, `loop { ..; if !(c) { break; } }`, `loop {`
 //   - bitwise not:  `!x`
-// What it does not do (yet): Rust idioms such as slices, iterators and
-// Option/Result. The output reads like unsafe Rust over raw pointers, which
-// is what the machine code does.
+//   - slices:       a (pointer, length) parameter pair that is indexed and
+//                   bounds-checked becomes `v: &[T]`, `v[i]`, `v.len()`
+// What it does not do (yet): iterators and Option/Result. Elsewhere the
+// output reads like unsafe Rust over raw pointers, which is what the
+// machine code does.
 #ifndef MEKIKI_PRINTRUST_HH
 #define MEKIKI_PRINTRUST_HH
 
@@ -30,6 +32,23 @@ public:
 class PrintRust : public PrintC {
   static OpToken as_cast;
   static OpToken rust_not;
+  /// A (pointer, length) parameter pair recognized as one slice parameter.
+  struct SliceParam {
+    const Symbol *ptr;
+    const Symbol *len;
+    Datatype *elem;
+  };
+  /// A LOAD that reads an element of a slice: `ptr[index]`.
+  struct SliceLoad {
+    const Symbol *ptr;
+    const Varnode *index;   ///< null when the index is the constant `cindex`
+    uintb cindex;
+  };
+  vector<SliceParam> slices;
+  map<const PcodeOp *, SliceLoad> sliceLoads;
+  void findSlices(const Funcdata *fd);
+  const SliceParam *sliceOfPtr(const Symbol *sym) const;
+  const SliceParam *sliceOfLen(const Symbol *sym) const;
 public:
   PrintRust(Architecture *g, const string &nm = "rust-language");
   string rustType(const Datatype *ct);
@@ -45,6 +64,9 @@ public:
   virtual void emitBlockWhileDo(const BlockWhileDo *bl);
   virtual void emitBlockDoWhile(const BlockDoWhile *bl);
   virtual void emitBlockInfLoop(const BlockInfLoop *bl);
+  virtual void docFunction(const Funcdata *fd);
+  virtual void opLoad(const PcodeOp *op);
+  virtual void pushSymbol(const Symbol *sym, const Varnode *vn, const PcodeOp *op);
 };
 
 }  // namespace ghidra

@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! seg <vaddr> <fileoff> <filesz> <flags>   a PT_LOAD mapping, flags like RE
-//! sym <addr> <name>                         a recovered function name
+//! sym <addr> <name>                         a recovered function (FUN_<addr> when unnamed)
 //! ptr <slot> <value>                        an 8-byte pointer the loader writes at
 //!                                           <slot> (a relocation), so indirect calls
 //!                                           through the GOT resolve to their target
@@ -168,10 +168,14 @@ pub fn decompiler_setup(data: &[u8]) -> Option<(&'static str, String)> {
             );
         }
     }
+    // Every known function start, named or not: the decompiler also uses
+    // them as boundaries, so flow does not run on into the next function.
     for f in analysis.functions() {
-        if let Some(name) = f.name.as_deref().map(clean).filter(|n| !n.is_empty()) {
-            let _ = writeln!(out, "sym {:x} {name}", f.start);
+        match f.name.as_deref().map(clean).filter(|n| !n.is_empty()) {
+            Some(name) => writeln!(out, "sym {:x} {name}", f.start),
+            None => writeln!(out, "sym {:x} FUN_{:08x}", f.start, f.start),
         }
+        .ok();
     }
     for (slot, target) in pointer_slots(elf) {
         let _ = match target {

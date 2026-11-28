@@ -2,6 +2,7 @@
 // closely, changing only the syntax.
 #include "printrust.hh"
 #include "funcdata.hh"
+#include "op.hh"
 
 namespace ghidra {
 
@@ -89,6 +90,177 @@ void PrintRust::opCast(const PcodeOp *op) {
 
 void PrintRust::opIntNegate(const PcodeOp *op) { opUnary(&rust_not, op); }
 
+// ---- slices ---------------------------------------------------------------
+
+// The symbol a varnode belongs to, or null.
+static const Symbol *symbolOf(const Varnode *vn) {
+  if (vn == (const Varnode *)0 || vn->isConstant() || vn->isAnnotation()) return (const Symbol *)0;
+  try {
+    return vn->getHigh()->getSymbol();
+  } catch (LowlevelError &) {
+    return (const Symbol *)0;  // no high-level variable (dead or not yet merged)
+  }
+}
+
+// Looks through casts and copies that are not printed on their own.
+static const Varnode *throughCasts(const Varnode *vn) {
+  while (vn->isWritten() && vn->isImplied()) {
+    OpCode c = vn->getDef()->code();
+    if (c != CPUI_CAST && c != CPUI_COPY) break;
+    vn = vn->getDef()->getIn(0);
+  }
+  return vn;
+}
+
+// If `addr` (the address a LOAD of `size` bytes reads) is `ptr + index*size`,
+// `ptr + c` or `ptr` for a parameter `ptr`, returns ptr's symbol and fills
+// index / cindex.
+static const Symbol *elementAddress(const Varnode *addr, int4 size, const Varnode *&index, uintb &cindex) {
+  index = (const Varnode *)0;
+  cindex = 0;
+  addr = throughCasts(addr);
+  const Symbol *direct = symbolOf(addr);
+  if (direct != (const Symbol *)0 && direct->getCategory() == Symbol::function_parameter) return direct;
+  if (!addr->isWritten() || !addr->isImplied()) return (const Symbol *)0;
+  const PcodeOp *def = addr->getDef();
+  if (def->code() == CPUI_PTRADD) {
+    const Varnode *k = def->getIn(2);
+    if (!k->isConstant() || (int4)k->getOffset() != size) return (const Symbol *)0;
+    const Symbol *base = symbolOf(throughCasts(def->getIn(0)));
+    if (base == (const Symbol *)0 || base->getCategory() != Symbol::function_parameter) return (const Symbol *)0;
+    const Varnode *i = def->getIn(1);
+    if (i->isConstant()) cindex = i->getOffset(); else index = i;
+    return base;
+  }
+  if (def->code() != CPUI_INT_ADD) return (const Symbol *)0;
+  for (int4 side = 0; side < 2; ++side) {
+    const Symbol *base = symbolOf(throughCasts(def->getIn(side)));
+    if (base == (const Symbol *)0 || base->getCategory() != Symbol::function_parameter) continue;
+    const Varnode *off = throughCasts(def->getIn(1 - side));
+    if (off->isConstant()) {
+      if (off->getOffset() % size != 0) return (const Symbol *)0;
+      cindex = off->getOffset() / size;
+      return base;
+    }
+    if (size == 1) {
+      index = off;
+      return base;
+    }
+    if (off->isWritten() && off->isImplied() && off->getDef()->code() == CPUI_INT_MULT) {
+      const PcodeOp *m = off->getDef();
+      for (int4 j = 0; j < 2; ++j) {
+        const Varnode *k = m->getIn(1 - j);
+        if (k->isConstant() && (int4)k->getOffset() == size) {
+          index = m->getIn(j);
+          return base;
+        }
+      }
+    }
+    return (const Symbol *)0;
+  }
+  return (const Symbol *)0;
+}
+
+static bool isComparison(OpCode c) {
+  return c == CPUI_INT_LESS || c == CPUI_INT_LESSEQUAL || c == CPUI_INT_SLESS || c == CPUI_INT_SLESSEQUAL ||
+         c == CPUI_INT_EQUAL || c == CPUI_INT_NOTEQUAL;
+}
+
+// Rust passes `&[T]` and `&str` as two arguments, pointer then length. A
+// pair of parameters is taken for a slice when the pointer is only read as
+// `ptr[i]` with one element size, is never reassigned, and the length is
+// compared with something (a bounds check or a loop bound) without being
+// the index itself.
+void PrintRust::findSlices(const Funcdata *fd) {
+  slices.clear();
+  sliceLoads.clear();
+  const FuncProto &proto = fd->getFuncProto();
+  int4 n = proto.numParams();
+  for (int4 i = 0; i + 1 < n; ++i) {
+    const Symbol *ptr = proto.getParam(i)->getSymbol();
+    const Symbol *len = proto.getParam(i + 1)->getSymbol();
+    if (ptr == (const Symbol *)0 || len == (const Symbol *)0) continue;
+    int4 wsize = glb->getDefaultDataSpace()->getAddrSize();
+    if (proto.getParam(i)->getSize() != wsize || proto.getParam(i + 1)->getSize() != wsize) continue;
+    bool ok = true, lenCompared = false;
+    int4 esize = 0;
+    Datatype *elem = (Datatype *)0;
+    map<const PcodeOp *, SliceLoad> loads;
+    list<PcodeOp *>::const_iterator it;
+    for (it = fd->beginOpAlive(); ok && it != fd->endOpAlive(); ++it) {
+      const PcodeOp *op = *it;
+      for (int4 k = 0; k < op->numInput(); ++k) {
+        const Varnode *in = op->getIn(k);
+        if (symbolOf(in) == len && isComparison(op->code())) lenCompared = true;
+      }
+      const Varnode *out = op->getOut();
+      if (out != (const Varnode *)0 && symbolOf(out) == ptr) ok = false;  // reassigned
+      if (op->code() != CPUI_LOAD) continue;
+      const Varnode *index;
+      uintb cindex;
+      int4 size = op->getOut()->getSize();
+      if (elementAddress(op->getIn(1), size, index, cindex) != ptr) continue;
+      if (index != (const Varnode *)0 && symbolOf(index) == len) ok = false;  // len used as an index: not a length
+      if (esize != 0 && esize != size) ok = false;
+      esize = size;
+      if (elem == (Datatype *)0) elem = op->getOut()->getHighTypeDefFacing();
+      loads[op] = SliceLoad{ptr, index, cindex};
+    }
+    if (!ok || !lenCompared || loads.empty()) continue;
+    slices.push_back(SliceParam{ptr, len, elem});
+    sliceLoads.insert(loads.begin(), loads.end());
+    ++i;  // the length is taken
+  }
+}
+
+const PrintRust::SliceParam *PrintRust::sliceOfPtr(const Symbol *sym) const {
+  for (const SliceParam &s : slices)
+    if (s.ptr == sym) return &s;
+  return (const SliceParam *)0;
+}
+
+const PrintRust::SliceParam *PrintRust::sliceOfLen(const Symbol *sym) const {
+  for (const SliceParam &s : slices)
+    if (s.len == sym) return &s;
+  return (const SliceParam *)0;
+}
+
+void PrintRust::docFunction(const Funcdata *fd) {
+  findSlices(fd);
+  PrintC::docFunction(fd);
+  slices.clear();
+  sliceLoads.clear();
+}
+
+// `v[i]` for a recognized slice element read.
+void PrintRust::opLoad(const PcodeOp *op) {
+  map<const PcodeOp *, SliceLoad>::const_iterator it = sliceLoads.find(op);
+  if (it == sliceLoads.end()) {
+    PrintC::opLoad(op);
+    return;
+  }
+  const SliceLoad &l = it->second;
+  pushOp(&subscript, op);
+  pushAtom(Atom(l.ptr->getDisplayName(), vartoken, EmitMarkup::param_color, op, (const Varnode *)0));
+  if (l.index != (const Varnode *)0)
+    pushVn(l.index, op, mods);
+  else
+    pushAtom(Atom(std::to_string(l.cindex), syntax, EmitMarkup::const_color, op, (const Varnode *)0));
+}
+
+// The length of a slice prints as `v.len()`; its pointer, outside `v[i]`, as `v.as_ptr()`.
+void PrintRust::pushSymbol(const Symbol *sym, const Varnode *vn, const PcodeOp *op) {
+  if (const SliceParam *s = sliceOfLen(sym)) {
+    pushAtom(Atom(s->ptr->getDisplayName() + ".len()", vartoken, EmitMarkup::param_color, op, vn));
+    return;
+  }
+  if (const SliceParam *s = sliceOfPtr(sym)) {
+    pushAtom(Atom(s->ptr->getDisplayName() + ".as_ptr()", vartoken, EmitMarkup::param_color, op, vn));
+    return;
+  }
+  PrintC::pushSymbol(sym, vn, op);
+}
+
 void PrintRust::emitVarDecl(const Symbol *sym) {
   int4 id = emit->beginVarDecl(sym);
   pushSymbol(sym, (Varnode *)0, (PcodeOp *)0);
@@ -121,10 +293,18 @@ void PrintRust::emitFunctionDeclaration(const Funcdata *fd) {
   for (int4 i = 0; i < sz; ++i) {
     ProtoParameter *param = proto->getParam(i);
     if (isSet(hide_thisparam) && param->isThisPointer()) continue;
+    if (param->getSymbol() != (Symbol *)0 && sliceOfLen(param->getSymbol()) != (const SliceParam *)0) continue;
     if (comma) emit->print(COMMA);
     comma = true;
     Symbol *sym = param->getSymbol();
-    if (sym != (Symbol *)0)
+    const SliceParam *slice = sym != (Symbol *)0 ? sliceOfPtr(sym) : (const SliceParam *)0;
+    if (slice != (const SliceParam *)0) {
+      int4 vid = emit->beginVarDecl(sym);
+      emit->print(sym->getDisplayName(), EmitMarkup::param_color);
+      emit->print(": ");
+      emit->print("&[" + rustType(slice->elem) + "]", EmitMarkup::type_color);
+      emit->endVarDecl(vid);
+    } else if (sym != (Symbol *)0)
       emitVarDecl(sym);
     else {
       emit->print("_: ");
