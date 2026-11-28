@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mekiki",
+  "mainBinaryName": "mekiki",
+  "version": "0.1.0",
+  "identifier": "org.rustsecjp.mekiki",
+  "build": {
+    "beforeDevCommand": "npm run build:decomp && npm run dev:web",
+    "devUrl": "http://localhost:5176",
+    "beforeBuildCommand": "npm run build:decomp && npm run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Mekiki",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "externalBin": [
+      "binaries/mekiki-decomp"
+    ],
+    "resources": {
+      "../decompiler/specs/x86/": "specs/x86/"
+    }
+  }
+}
