@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 
 pub mod code;
+pub mod setup;
 
 use serde::Serialize;
 use unforge_analysis::{Analysis, Group, names};

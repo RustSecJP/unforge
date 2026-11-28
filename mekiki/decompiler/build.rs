@@ -8,6 +8,7 @@ fn main() {
         .collect();
     files.sort();
     files.push("src/mekiki_decomp.cc".into());
+    files.push("src/printrust.cc".into());
     cc::Build::new()
         .cpp(true)
         .std("c++17")
@@ -20,5 +21,5 @@ fn main() {
         .compile("ghidra_decomp");
     println!("cargo:rustc-link-lib=z");
     println!("cargo:rerun-if-changed=ghidra");
-    println!("cargo:rerun-if-changed=src/mekiki_decomp.cc");
+    println!("cargo:rerun-if-changed=src");
 }

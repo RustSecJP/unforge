@@ -213,3 +213,8 @@ a { color: #0645ad; }
 .d-var { color: #6b3d00; }
 .d-fn { color: #0000ff; cursor: pointer; }
 .d-fn:hover { text-decoration: underline; }
+.d-lang { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.d-lang button { padding: 0 8px; height: 18px; border: 0; background: #fff; font-size: 11px; cursor: pointer; color: #444; }
+.d-lang button + button { border-left: 1px solid var(--line); }
+.d-lang button.on { background: var(--sel-strong); color: #fff; }
+.d-note { color: #1e7b34; background: #eef8f0; border-radius: 2px; }

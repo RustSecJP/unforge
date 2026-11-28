@@ -24,6 +24,8 @@ const MAX_LINE: usize = 64 * 1024;
 #[derive(Clone, Default)]
 pub struct Target {
     pub path: PathBuf,
+    /// The file's bytes, to explain constants in the output
+    pub data: Arc<Vec<u8>>,
     /// Ghidra language id, e.g. `x86:LE:64:default:gcc`; None = unsupported
     pub language: Option<String>,
     /// `seg` and `sym` command lines, sent once when the helper starts
@@ -35,6 +37,13 @@ struct Running {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     requests: u32,
+    /// Output language the helper is set to (`rust` or `c`)
+    lang: &'static str,
+}
+
+/// The output languages the helper can write.
+pub fn lang_name(lang: &str) -> &'static str {
+    if lang == "c" { "c" } else { "rust" }
 }
 
 #[derive(Default)]
@@ -87,7 +96,7 @@ impl Decompiler {
         }
     }
 
-    pub fn decompile(&mut self, addr: u64, helper: &Path, specs: &Path, killer: &Killer) -> Result<Decompiled, String> {
+    pub fn decompile(&mut self, addr: u64, lang: &str, helper: &Path, specs: &Path, killer: &Killer) -> Result<Decompiled, String> {
         let started = Instant::now();
         let target = self.target.clone().ok_or("No file is open.")?;
         let language = target
@@ -117,13 +126,17 @@ impl Decompiler {
                 }
             });
         }
-        let result = request(r, addr);
+        let result = request(r, addr, lang_name(lang));
         if let Ok(mut d) = done.lock() {
             *d = true;
         }
         killer.set(None);
         match result {
-            Ok((code, ms)) => Ok(Decompiled { code, ms, total_ms: started.elapsed().as_millis() as u64 }),
+            Ok((code, ms)) => Ok(Decompiled {
+                code: unforge_report::code::annotate(&target.data, &code),
+                ms,
+                total_ms: started.elapsed().as_millis() as u64,
+            }),
             Err(e) => {
                 let timed_out = started.elapsed() >= TIMEOUT;
                 self.stop();
@@ -150,10 +163,14 @@ fn start(helper: &Path, specs: &Path, file: &Path, language: &str, setup: &str) 
     let mut stdin = child.stdin.take().ok_or("no stdin")?;
     let stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
     stdin.write_all(setup.as_bytes()).map_err(|e| e.to_string())?;
-    Ok(Running { child: Arc::new(Mutex::new(child)), stdin, stdout, requests: 0 })
+    Ok(Running { child: Arc::new(Mutex::new(child)), stdin, stdout, requests: 0, lang: "rust" })
 }
 
-fn request(r: &mut Running, addr: u64) -> Result<(String, u64), String> {
+fn request(r: &mut Running, addr: u64, lang: &'static str) -> Result<(String, u64), String> {
+    if r.lang != lang {
+        writeln!(r.stdin, "lang {lang}").map_err(|_| "The decompiler stopped.".to_owned())?;
+        r.lang = lang;
+    }
     writeln!(r.stdin, "decompile {addr:x}").map_err(|_| "The decompiler stopped.".to_owned())?;
     r.stdin.flush().map_err(|_| "The decompiler stopped.".to_owned())?;
     let mut code = String::new();
@@ -179,39 +196,11 @@ fn request(r: &mut Running, addr: u64) -> Result<(String, u64), String> {
     }
 }
 
-/// The setup lines for a report: PT_LOAD mappings and every function name.
-pub fn setup_lines(report: &serde_json::Value) -> String {
-    let mut out = String::new();
-    for s in report["segments"].as_array().into_iter().flatten() {
-        if s["kind"] != "LOAD" {
-            continue;
-        }
-        let n = |k: &str| s[k].as_u64().unwrap_or(0);
-        out.push_str(&format!(
-            "seg {:x} {:x} {:x} {}\n",
-            n("vaddr"),
-            n("offset"),
-            n("filesz"),
-            s["flags"].as_str().unwrap_or("R").replace('-', "")
-        ));
-    }
-    for f in report["function_rows"].as_array().into_iter().flatten() {
-        if let (Some(start), Some(name)) = (f["start"].as_u64(), f["name"].as_str()) {
-            let name: String = name.chars().filter(|c| !c.is_control()).take(1024).collect();
-            if !name.is_empty() {
-                out.push_str(&format!("sym {start:x} {name}\n"));
-            }
-        }
-    }
-    out
-}
-
-/// Ghidra's language id for a report's file, if we can decompile it.
-pub fn language(report: &serde_json::Value) -> Option<String> {
-    let file = &report["file"];
-    match (file["machine"].as_str()?, file["class"].as_str()?) {
-        ("x86-64", _) => Some("x86:LE:64:default:gcc".to_owned()),
-        ("x86", "ELF32") => Some("x86:LE:32:default:gcc".to_owned()),
-        _ => None,
-    }
+/// What the helper needs for a file (see `unforge_report::setup`).
+pub fn target(path: PathBuf, data: Arc<Vec<u8>>) -> Target {
+    let (language, setup) = match unforge_report::setup::decompiler_setup(&data) {
+        Some((lang, lines)) => (Some(lang.to_owned()), lines),
+        None => (None, String::new()),
+    };
+    Target { path, data, language, setup }
 }

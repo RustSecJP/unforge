@@ -27,17 +27,11 @@ function devReport(): Plugin {
           req.on('data', (c: Buffer) => chunks.push(c))
           req.on('end', () => resolve(Buffer.concat(chunks)))
         })
-      let lastReport: { segments: { kind: string; vaddr: number; offset: number; filesz: number; flags: string }[]; function_rows: { start: number; name: string | null }[]; file: { machine: string; class: string } } | null = null
       server.middlewares.use('/__mekiki/report', async (req, res) => {
         try {
           writeFileSync(file, await body(req))
           const started = Date.now()
           const json = run([file]).toString()
-          try {
-            lastReport = JSON.parse(json)
-          } catch {
-            lastReport = null
-          }
           res.setHeader('content-type', 'application/json')
           res.setHeader('x-elapsed-ms', String(Date.now() - started))
           res.end(json)
@@ -55,21 +49,18 @@ function devReport(): Plugin {
       const helper = join(root, 'mekiki', 'decompiler', 'target', 'release', 'mekiki-decomp')
       const specs = join(root, 'mekiki', 'decompiler', 'specs', 'x86')
       server.middlewares.use('/__mekiki/decompile', async (req, res) => {
-        const addr = Number((await body(req)).toString())
-        const r = lastReport
-        const lang = r?.file.machine === 'x86-64' ? 'x86:LE:64:default:gcc' : r?.file.machine === 'x86' ? 'x86:LE:32:default:gcc' : null
-        if (!r || !lang) {
+        const [addrText, langText] = (await body(req)).toString().split(' ')
+        const addr = Number(addrText)
+        const setup = spawnSync(exe, ['--decomp-setup', file], { maxBuffer: 1 << 28 })
+        if (setup.status !== 0) {
           res.statusCode = 400
           res.end('Decompiling is only available for x86 and x86-64 files for now.')
           return
         }
-        const lines = [
-          ...r.segments.filter((s) => s.kind === 'LOAD').map((s) => `seg ${s.vaddr.toString(16)} ${s.offset.toString(16)} ${s.filesz.toString(16)} ${s.flags.replace(/-/g, '')}`),
-          ...r.function_rows.filter((f) => f.name).map((f) => `sym ${f.start.toString(16)} ${f.name!.replace(/[\x00-\x1f]/g, '')}`),
-          `decompile ${addr.toString(16)}`,
-        ]
+        const [lang, ...lines] = setup.stdout.toString().split('\n')
+        const input = [...lines.filter(Boolean), `lang ${langText === 'c' ? 'c' : 'rust'}`, `decompile ${addr.toString(16)}`].join('\n') + '\n'
         const started = Date.now()
-        const out = spawnSync(helper, [specs, file, lang], { input: lines.join('\n') + '\n', maxBuffer: 1 << 28, timeout: 60000 }).stdout?.toString() ?? ''
+        const out = spawnSync(helper, [specs, file, lang], { input, maxBuffer: 1 << 28, timeout: 60000 }).stdout?.toString() ?? ''
         const end = /^@@END (\d+)ms$/m.exec(out)
         const err = /^@@ERROR (.*)$/m.exec(out)
         if (!end) {
@@ -77,8 +68,9 @@ function devReport(): Plugin {
           res.end(err ? `The decompiler could not handle this function: ${err[1]}` : 'The decompiler stopped.')
           return
         }
+        const code = spawnSync(exe, ['--annotate', file], { input: out.slice(0, end.index), maxBuffer: 1 << 28 }).stdout.toString()
         res.setHeader('content-type', 'application/json')
-        res.end(JSON.stringify({ code: out.slice(0, end.index), ms: Number(end[1]), total_ms: Date.now() - started }))
+        res.end(JSON.stringify({ code, ms: Number(end[1]), total_ms: Date.now() - started }))
       })
       server.middlewares.use('/__mekiki/code_map', (_req, res) => {
         try {

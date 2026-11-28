@@ -139,3 +139,224 @@ pub fn parse_code_map(bytes: &[u8]) -> Vec<(u64, &[u8])> {
     }
     out
 }
+
+/// A panic location (`core::panic::Location`): where in the source a panic
+/// would be raised. rustc keeps these even in stripped release builds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanicLocation {
+    pub file: String,
+    pub line: u32,
+    pub col: u32,
+}
+
+/// Longest string literal [`annotate`] reads.
+pub const MAX_STR: u64 = 4096;
+
+/// Reads `len` bytes at `addr` as a string literal: valid UTF-8, no NULs and
+/// no control characters other than tab / newline.
+pub fn str_at(data: &[u8], map: &MemoryMap, addr: u64, len: u64) -> Option<String> {
+    if len == 0 || len > MAX_STR {
+        return None;
+    }
+    let bytes = map
+        .bytes_at(data, addr)?
+        .get(..usize::try_from(len).ok()?)?;
+    let s = std::str::from_utf8(bytes).ok()?;
+    s.chars()
+        .all(|c| !c.is_control() || c == '\t' || c == '\n')
+        .then(|| s.to_owned())
+}
+
+/// Pointer values the loader writes (relocations), by slot address. In a
+/// PIE the file holds 0 where a relocated pointer goes.
+pub type Relocated = std::collections::HashMap<u64, u64>;
+
+/// [`Relocated`] for a file (see [`crate::setup::pointer_slots`]).
+pub fn relocated(elf: &ElfFile<'_>) -> Relocated {
+    crate::setup::pointer_slots(elf)
+        .into_iter()
+        .filter_map(|(slot, t)| match t {
+            crate::setup::SlotTarget::Address(a) => Some((slot, a)),
+            crate::setup::SlotTarget::Import(_) => None,
+        })
+        .collect()
+}
+
+/// The panic location stored at `addr` (64-bit layout: file pointer, file
+/// length, line, column), if it looks like one: a UTF-8 path ending in
+/// `.rs`, line and column in a sane range. The file pointer is taken from
+/// `relocs` when the loader writes it.
+pub fn panic_location_at(
+    data: &[u8],
+    map: &MemoryMap,
+    relocs: &Relocated,
+    addr: u64,
+) -> Option<PanicLocation> {
+    let b = map.bytes_at(data, addr)?.get(..24)?;
+    let word = |i: usize| -> Option<u64> {
+        if let Some(&v) = relocs.get(&addr.wrapping_add(i as u64)) {
+            return Some(v);
+        }
+        Some(u64::from_le_bytes(b.get(i..i + 8)?.try_into().ok()?))
+    };
+    let half =
+        |i: usize| -> Option<u32> { Some(u32::from_le_bytes(b.get(i..i + 4)?.try_into().ok()?)) };
+    let (ptr, len, line, col) = (word(0)?, word(8)?, half(16)?, half(20)?);
+    if !(1..=10_000_000).contains(&line) || col > 100_000 || !(4..=1024).contains(&len) {
+        return None;
+    }
+    let file = str_at(data, map, ptr, len)?;
+    (file.ends_with(".rs") && !file.contains('\n')).then_some(PanicLocation { file, line, col })
+}
+
+/// Adds comment lines to decompiled code (C or Rust from the helper), above
+/// the statement, for the constants it can explain:
+///
+/// - an address of a panic location: `// at src/main.rs:12:5`
+/// - an `(address, length)` pair of arguments that is a string literal:
+///   `// "called `Result::unwrap()` on an `Err` value"`
+///
+/// Only x86-64 files (the layout read above); others come back unchanged.
+pub fn annotate(data: &[u8], code: &str) -> String {
+    let Ok(elf) = ElfFile::parse(data) else {
+        return code.to_owned();
+    };
+    if bitness_of(&elf) != Some(Bitness::B64) {
+        return code.to_owned();
+    }
+    let map = elf.memory_map();
+    let relocs = relocated(&elf);
+    let regions = string_regions(&elf);
+    let in_strings = |a: u64, len: u64| {
+        regions
+            .iter()
+            .any(|&(s, e)| a >= s && a.saturating_add(len) <= e)
+    };
+    let lines: Vec<&str> = code.split('\n').collect();
+    // index of the line a note goes above -> notes
+    let mut notes_at: std::collections::BTreeMap<usize, Vec<String>> = Default::default();
+    for (li, body) in lines.iter().enumerate() {
+        let mut notes: Vec<String> = Vec::new();
+        let nums = numbers(body);
+        for (i, &(n, is_hex)) in nums.iter().enumerate() {
+            if !is_hex {
+                continue;
+            }
+            if let Some(loc) = panic_location_at(data, &map, &relocs, n) {
+                notes.push(format!("at {}:{}:{}", loc.file, loc.line, loc.col));
+                continue;
+            }
+            if let Some(&(len, _)) = nums.get(i + 1)
+                && in_strings(n, len)
+                && let Some(s) = str_at(data, &map, n, len)
+            {
+                let shown: String = s.chars().take(120).collect();
+                let more = if s.chars().count() > 120 { "…" } else { "" };
+                notes.push(format!("{shown:?}{more}"));
+            }
+        }
+        if notes.is_empty() {
+            continue;
+        }
+        // A call's arguments wrapped onto their own line: note the statement.
+        let mut at = li;
+        while at > 0
+            && lines
+                .get(at)
+                .is_some_and(|l| l.trim_start().starts_with('('))
+        {
+            at -= 1;
+        }
+        notes_at.entry(at).or_default().extend(notes);
+    }
+    let mut out = String::with_capacity(code.len() + notes_at.len() * 40);
+    for (li, body) in lines.iter().enumerate() {
+        if let Some(notes) = notes_at.get(&li) {
+            let indent: String = body.chars().take_while(|c| *c == ' ').collect();
+            for note in notes {
+                out.push_str(&indent);
+                out.push_str("// ");
+                out.push_str(note);
+                out.push('\n');
+            }
+        }
+        out.push_str(body);
+        if li + 1 < lines.len() {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Where string literals live: `.rodata*` sections, or when the section
+/// table is gone, read-only non-executable `PT_LOAD`s past the ELF header.
+fn string_regions(elf: &ElfFile<'_>) -> Vec<(u64, u64)> {
+    let mut out = Vec::new();
+    if let Ok(table) = elf.section_headers() {
+        for i in 0..table.len() {
+            let Some(sh) = table.get(i) else { continue };
+            let named_rodata = elf
+                .section_name_bounded(&sh, 64)
+                .is_ok_and(|n| n.bytes.starts_with(b".rodata"));
+            if named_rodata && sh.addr != 0 {
+                out.push((sh.addr, sh.addr.saturating_add(sh.size)));
+            }
+        }
+    }
+    if out.is_empty()
+        && let Ok(phdrs) = elf.program_headers()
+    {
+        for p in phdrs.iter() {
+            if p.p_type == 1 && p.flags & 0b011 == 0 {
+                let start = if p.offset == 0 {
+                    p.vaddr.saturating_add(0x40)
+                } else {
+                    p.vaddr
+                };
+                out.push((start, p.vaddr.saturating_add(p.filesz)));
+            }
+        }
+    }
+    out
+}
+
+/// The integer literals of a line, in order: (value, written in hex).
+/// Identifiers that contain digits (`uVar3`, `FUN_1234`) are skipped.
+fn numbers(line: &str) -> Vec<(u64, bool)> {
+    let b = line.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b.get(i).copied().unwrap_or(0);
+        let prev_ident = i > 0
+            && b.get(i - 1)
+                .is_some_and(|p| p.is_ascii_alphanumeric() || *p == b'_');
+        if c.is_ascii_digit() && !prev_ident {
+            let hex = c == b'0' && matches!(b.get(i + 1), Some(b'x') | Some(b'X'));
+            let start = if hex { i + 2 } else { i };
+            let mut j = start;
+            while b.get(j).is_some_and(|d| {
+                if hex {
+                    d.is_ascii_hexdigit()
+                } else {
+                    d.is_ascii_digit()
+                }
+            }) {
+                j += 1;
+            }
+            let next_ident = b
+                .get(j)
+                .is_some_and(|d| d.is_ascii_alphanumeric() || *d == b'_');
+            if j > start && !next_ident {
+                let text = line.get(start..j).unwrap_or("0");
+                if let Ok(v) = u64::from_str_radix(text, if hex { 16 } else { 10 }) {
+                    out.push((v, hex));
+                }
+            }
+            i = j.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    out
+}

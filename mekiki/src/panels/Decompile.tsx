@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Decompiled, Opened } from '../backend'
+import type { DecompLang, Decompiled, Opened } from '../backend'
 import { shortName, type Model } from '../model'
 
 type Entry = { kind: 'ok'; d: Decompiled } | { kind: 'error'; message: string }
 
-const KEYWORDS = new Set(['if', 'else', 'while', 'do', 'for', 'return', 'break', 'continue', 'switch', 'case', 'default', 'goto', 'sizeof'])
-const TYPE = /^(void|bool|char|float|double|float10|code|(u?int|xunknown|unkbyte|undefined)\d*|(u)?long|byte|word|dword|qword|wchar_t|string)$/
+const KEYWORDS = new Set(['if', 'else', 'while', 'do', 'for', 'return', 'break', 'continue', 'switch', 'case', 'default', 'goto', 'sizeof', 'fn', 'let', 'mut', 'loop', 'as', 'match', 'true', 'false'])
+const TYPE = /^(void|bool|char|float|double|float10|code|(u?int|xunknown|unkbyte|undefined)\d*|(u)?long|byte|word|dword|qword|wchar_t|string|[iu](8|16|32|64|128|size)|f(32|64|80))$/
 const TOKEN = /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b0x[0-9a-fA-F]+\b|\b\d+\b)|([A-Za-z_][A-Za-z0-9_]*)|([\s\S])/g
 
 /** Syntax-colors Ghidra's C output; names of known functions become links. */
@@ -42,7 +42,8 @@ function highlight(code: string, model: Model, onGo: (addr: number) => void): Re
     const m = TOKEN.exec(code)
     if (!m) break
     const [text, comment, str, num, ident] = m
-    if (comment) out.push(<span key={key++} className="d-comment">{text}</span>)
+    // `//` comments are Mekiki's explanations (strings, panic locations); `/* */` are Ghidra's
+    if (comment) out.push(<span key={key++} className={text.startsWith('//') ? 'd-note' : 'd-comment'}>{text}</span>)
     else if (str) out.push(<span key={key++} className="d-str">{text}</span>)
     else if (num) out.push(<span key={key++} className="d-num">{text}</span>)
     else if (ident && KEYWORDS.has(ident)) out.push(<span key={key++} className="d-kw">{text}</span>)
@@ -54,14 +55,34 @@ function highlight(code: string, model: Model, onGo: (addr: number) => void): Re
   return out
 }
 
+// Ghidra puts its own block comments (WARNING …) far to the right; indent
+// them like the statement that follows instead.
+export function tidy(code: string): string {
+  const lines = code.replace(/^\n+/, '').split('\n')
+  for (let i = lines.length - 2; i >= 0; i--) {
+    const t = lines[i].trim()
+    if (t.startsWith('/*') && t.endsWith('*/')) {
+      const next = lines.slice(i + 1).find((l) => l.trim() !== '') ?? ''
+      lines[i] = next.slice(0, next.length - next.trimStart().length) + t
+    }
+  }
+  return lines.join('\n')
+}
+
 export function Decompile({ model, opened, fi, onGo }: { model: Model; opened: Opened; fi: number; onGo: (addr: number) => void }) {
-  const cache = useRef(new Map<number, Entry>())
+  const cache = useRef(new Map<string, Entry>())
+  const [lang, setLangState] = useState<DecompLang>(() => (localStorage.getItem('mekiki.decompLang') === 'c' ? 'c' : 'rust'))
+  const setLang = (l: DecompLang) => {
+    setLangState(l)
+    localStorage.setItem('mekiki.decompLang', l)
+  }
   const busy = useRef(false)
   const [, bump] = useState(0)
   const [pending, setPending] = useState<number | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const f = fi >= 0 ? model.report.function_rows[fi] : null
   const start = f?.start ?? null
+  const key = start === null ? null : `${lang}:${start}`
 
   // A new file: forget everything.
   useEffect(() => {
@@ -71,7 +92,7 @@ export function Decompile({ model, opened, fi, onGo }: { model: Model; opened: O
 
   // Decompile the function under the cursor once it stays there a moment.
   useEffect(() => {
-    if (start === null || cache.current.has(start)) {
+    if (start === null || key === null || cache.current.has(key)) {
       setPending(null)
       return
     }
@@ -81,11 +102,11 @@ export function Decompile({ model, opened, fi, onGo }: { model: Model; opened: O
       busy.current = true
       setPending(start)
       try {
-        const d = await opened.decompile(start)
-        cache.current.set(start, { kind: 'ok', d })
+        const d = await opened.decompile(start, lang)
+        cache.current.set(key, { kind: 'ok', d })
       } catch (e) {
         const message = String(e instanceof Error ? e.message : e)
-        if (!gone || !/cancel/i.test(message)) cache.current.set(start, { kind: 'error', message })
+        if (!gone || !/cancel/i.test(message)) cache.current.set(key, { kind: 'error', message })
       } finally {
         busy.current = false
         if (!gone) setPending(null)
@@ -96,7 +117,7 @@ export function Decompile({ model, opened, fi, onGo }: { model: Model; opened: O
       gone = true
       window.clearTimeout(t)
     }
-  }, [start, opened])
+  }, [start, key, lang, opened])
 
   useEffect(() => {
     if (pending === null) return
@@ -107,14 +128,22 @@ export function Decompile({ model, opened, fi, onGo }: { model: Model; opened: O
   }, [pending])
 
   if (!f) return <p className="empty">Put the cursor inside a function in the Listing to decompile it.</p>
-  const entry = cache.current.get(f.start)
+  const entry = key ? cache.current.get(key) : undefined
   return (
     <div className="decompile">
       <div className="d-head">
         <span className="d-name" title={f.name ?? ''}>
           {shortName(f.name, f.start)}
         </span>
-        {entry?.kind === 'ok' && <span className="d-meta">Ghidra decompiler · {entry.d.ms < 1 ? '<1' : entry.d.ms} ms</span>}
+        {entry?.kind === 'ok' && <span className="d-meta">{entry.d.ms < 1 ? '<1' : entry.d.ms} ms</span>}
+        <span className="d-lang" role="group" aria-label="Output language">
+          <button type="button" className={lang === 'rust' ? 'on' : ''} onClick={() => setLang('rust')} title="Rust-style output">
+            Rust
+          </button>
+          <button type="button" className={lang === 'c' ? 'on' : ''} onClick={() => setLang('c')} title="Ghidra's C output">
+            C
+          </button>
+        </span>
       </div>
       {!entry && (
         <div className="d-wait">
@@ -131,7 +160,7 @@ export function Decompile({ model, opened, fi, onGo }: { model: Model; opened: O
         </div>
       )}
       {entry?.kind === 'error' && <p className="d-error">{entry.message}</p>}
-      {entry?.kind === 'ok' && <pre className="d-code">{highlight(entry.d.code.replace(/^\n+/, ''), model, onGo)}</pre>}
+      {entry?.kind === 'ok' && <pre className="d-code">{highlight(tidy(entry.d.code), model, onGo)}</pre>}
     </div>
   )
 }

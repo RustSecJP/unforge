@@ -16,7 +16,7 @@ const MAX_RANGE: u64 = 1 << 20;
 
 #[derive(Default)]
 struct Opened {
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -45,16 +45,13 @@ fn open_file(path: PathBuf, state: State<'_, AppState>, dstate: State<'_, Decomp
     let elapsed_ms = started.elapsed().as_millis() as u64;
     let report: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let bytes = Arc::new(bytes);
     if let Ok(mut opened) = state.0.lock() {
-        opened.bytes = bytes;
+        opened.bytes = bytes.clone();
     }
     dstate.killer.kill();
     if let Ok(mut d) = dstate.decompiler.lock() {
-        d.reset(decomp::Target {
-            path: path.clone(),
-            language: decomp::language(&report),
-            setup: decomp::setup_lines(&report),
-        });
+        d.reset(decomp::target(path.clone(), bytes));
     }
     Ok(serde_json::json!({
         "name": name,
@@ -88,9 +85,10 @@ fn specs_path(app: &AppHandle) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../decompiler/specs/x86")
 }
 
-/// C-like code of the function at `addr`, from Ghidra's decompiler.
+/// Code of the function at `addr` from Ghidra's decompiler, in `lang`
+/// (`rust` or `c`).
 #[tauri::command]
-async fn decompile(addr: u64, app: AppHandle) -> Result<decomp::Decompiled, String> {
+async fn decompile(addr: u64, lang: String, app: AppHandle) -> Result<decomp::Decompiled, String> {
     let specs = specs_path(&app);
     let (decompiler, killer) = {
         let s = app.state::<DecompState>();
@@ -98,7 +96,7 @@ async fn decompile(addr: u64, app: AppHandle) -> Result<decomp::Decompiled, Stri
     };
     tauri::async_runtime::spawn_blocking(move || {
         let mut d = decompiler.lock().map_err(|_| "busy".to_owned())?;
-        d.decompile(addr, &helper_path(), &specs, &killer)
+        d.decompile(addr, &lang, &helper_path(), &specs, &killer)
     })
     .await
     .map_err(|e| e.to_string())?

@@ -13,9 +13,11 @@ export interface Opened {
   codeMap: () => Promise<Uint8Array>
   disasmAt: (addrs: number[]) => Promise<(InsnText | null)[]>
   /** C-like code of the function at addr (Ghidra's decompiler, no Java) */
-  decompile: (addr: number) => Promise<Decompiled>
+  decompile: (addr: number, lang: DecompLang) => Promise<Decompiled>
   cancelDecompile: () => Promise<void>
 }
+
+export type DecompLang = 'rust' | 'c'
 
 export interface Decompiled {
   code: string
@@ -56,7 +58,7 @@ async function openPathInTauri(path: string, command = 'open_file'): Promise<Ope
       readRange: async (offset, len) => new Uint8Array(await invoke<ArrayBuffer>('read_range', { offset, len })),
       codeMap: async () => new Uint8Array(await invoke<ArrayBuffer>('code_map')),
       disasmAt: (addrs) => invoke<(InsnText | null)[]>('disasm_at', { addrs }),
-      decompile: (addr) => invoke<Decompiled>('decompile', { addr }),
+      decompile: (addr, lang) => invoke<Decompiled>('decompile', { addr, lang }),
       cancelDecompile: async () => void (await invoke('cancel_decompile')),
     }
   } catch (e) {
@@ -76,8 +78,8 @@ async function openFileInBrowser(file: File): Promise<Opened> {
     readRange: async (offset, len) => new Uint8Array(await file.slice(offset, offset + len).arrayBuffer()),
     codeMap: async () => new Uint8Array(await (await fetch('/__mekiki/code_map')).arrayBuffer()),
     disasmAt: async (addrs) => (await fetch('/__mekiki/disasm', { method: 'POST', body: JSON.stringify(addrs) })).json(),
-    decompile: async (addr) => {
-      const res = await fetch('/__mekiki/decompile', { method: 'POST', body: String(addr) })
+    decompile: async (addr, lang) => {
+      const res = await fetch('/__mekiki/decompile', { method: 'POST', body: `${addr} ${lang}` })
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseAddress } from './format'
+import { tidy } from './panels/Decompile'
 import { buildListing, functionAt, parseCodeMap, rowOfAddress, RowKind } from './listing'
 import type { FunctionRow, Report, SectionRow } from './report'
 
@@ -121,5 +122,12 @@ describe('parseAddress', () => {
     expect(parseAddress(' 1A2b ')).toBe(0x1a2b)
     expect(parseAddress('main')).toBeNull()
     expect(parseAddress('')).toBeNull()
+  })
+})
+
+describe('tidy', () => {
+  it('indents Ghidra comments like the next statement', () => {
+    const code = '\n{\n  if c {\n                    /* WARNING: Subroutine does not return */\n    panic();\n  }\n}'
+    expect(tidy(code)).toBe('{\n  if c {\n    /* WARNING: Subroutine does not return */\n    panic();\n  }\n}')
   })
 })
