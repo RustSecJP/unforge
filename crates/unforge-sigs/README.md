@@ -10,6 +10,8 @@ unforge sig build -o all.db std.db other.db          # データベースどう�
 unforge sig match --db all.db path/to/stripped
 ```
 
+GitHub Actions で、Rust の版ごとの標準ライブラリと、よく使われる crate のデータベースを作っています。落とし方と使い方は [sigs/README.md](../../sigs/README.md) を見てください。
+
 ## 指紋
 
 関数を、その大きさいっぱいに unforge-disasm で逆アセンブルし、末尾の詰め物（`nop`、`int3`）を除き、命令ごとに「ニーモニック + オペランド（Intel 記法）」の一行にします。そのとき、リンクしたときの配置で変わる数だけを置き換えます。
