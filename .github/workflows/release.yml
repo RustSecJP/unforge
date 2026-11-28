@@ -1,0 +1,201 @@
+# Builds Mekiki (the desktop app in mekiki/) and the unforge CLI, and
+# publishes them as a GitHub release when a `v*` tag is pushed.
+#
+# Asset names do not carry the version, so
+# https://github.com/RustSecJP/mekiki/releases/latest/download/<name>
+# always points at the newest build:
+#   Mekiki-macos-universal.dmg, Mekiki-linux-x86_64.AppImage,
+#   Mekiki-linux-amd64.deb, Mekiki-windows-x64-setup.exe,
+#   unforge-<target>.tar.gz (.zip on Windows), SHA256SUMS
+#
+# The macOS app is not signed or notarized (see README: Install).
+# Manual runs and pull requests build everything but publish nothing.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Pull requests that touch the app or this workflow build everything too
+  # (nothing is published), so a broken release is caught before tagging.
+  pull_request:
+    paths: ["mekiki/**", ".github/workflows/release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  app:
+    name: Mekiki (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-latest
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin x86_64-apple-darwin
+            bundles: dmg
+          - name: linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+          - name: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            bundles: nsis
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Linux packages for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf zlib1g-dev
+      - name: zlib for the decompiler (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          vcpkg install zlib:x64-windows-static-md
+          echo "LIB=$VCPKG_INSTALLATION_ROOT\\installed\\x64-windows-static-md\\lib;$LIB" >> "$GITHUB_ENV"
+          echo "INCLUDE=$VCPKG_INSTALLATION_ROOT\\installed\\x64-windows-static-md\\include;$INCLUDE" >> "$GITHUB_ENV"
+      - name: Rust (toolchain from rust-toolchain.toml)
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.rust_targets }}
+      - name: Build
+        working-directory: mekiki
+        shell: bash
+        run: |
+          npm ci
+          npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir out
+          b=mekiki/src-tauri/target/${{ matrix.target }}/release/bundle
+          case "${{ matrix.name }}" in
+            macos)
+              cp "$(ls $b/dmg/*.dmg | head -1)" out/Mekiki-macos-universal.dmg ;;
+            linux)
+              cp "$(ls $b/appimage/*.AppImage | head -1)" out/Mekiki-linux-x86_64.AppImage
+              cp "$(ls $b/deb/*.deb | head -1)" out/Mekiki-linux-amd64.deb ;;
+            windows)
+              cp "$(ls $b/nsis/*-setup.exe | head -1)" out/Mekiki-windows-x64-setup.exe ;;
+          esac
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  cli:
+    name: unforge CLI (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
+          cargo build --release --locked -p unforge --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          name=unforge-${{ matrix.target }}
+          mkdir -p "dist/$name" out
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp target/${{ matrix.target }}/release/unforge.exe "dist/$name/"
+            (cd dist && 7z a -tzip "../out/$name.zip" "$name" >/dev/null)
+          else
+            cp target/${{ matrix.target }}/release/unforge "dist/$name/"
+            tar -C dist -czf "out/$name.tar.gz" "$name"
+          fi
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    needs: [app, cli]
+    # Windows is a bonus: publish when macOS and Linux built, even if it did not.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Check and checksum
+        working-directory: assets
+        run: |
+          for f in Mekiki-macos-universal.dmg Mekiki-linux-x86_64.AppImage Mekiki-linux-amd64.deb \
+                   unforge-x86_64-unknown-linux-musl.tar.gz; do
+            test -s "$f" || { echo "missing $f"; exit 1; }
+          done
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          row() { test -f "assets/$2" && echo "| $1 | [$2]($url/$2) |" || true; }
+          {
+            echo "Mekiki ${TAG}: see what is inside a Rust binary."
+            echo
+            echo "| Download | |"
+            echo "| --- | --- |"
+            row "macOS (Apple silicon and Intel)" Mekiki-macos-universal.dmg
+            row "Linux (AppImage)" Mekiki-linux-x86_64.AppImage
+            row "Linux (Debian / Ubuntu)" Mekiki-linux-amd64.deb
+            row "Windows (x64)" Mekiki-windows-x64-setup.exe
+            echo
+            echo "The macOS app is not signed. On first launch, right-click Mekiki in Applications and choose Open,"
+            echo 'or run `xattr -dr com.apple.quarantine /Applications/Mekiki.app`.'
+            echo 'The AppImage needs `chmod +x Mekiki-linux-x86_64.AppImage` before it runs.'
+            echo
+            echo 'The `unforge-*` archives are the command-line tool. Verify downloads with `sha256sum -c SHA256SUMS`.'
+          } > notes.md
+          gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --title "Mekiki $TAG" --notes-file notes.md --verify-tag
