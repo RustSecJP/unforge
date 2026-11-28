@@ -2,6 +2,7 @@
 
 Mekiki の Decompile 窓で使う逆コンパイラです。Ghidra の C++ 逆コンパイラ（`ghidra/`）を、Ghidra の Java 部分なしで動かします。Mekiki が別のプロセスとして起動するので、解析中に落ちても Mekiki 本体は落ちません。
 
+- `NOTICE`: Ghidra の NOTICE（Apache License 2.0 の求めにより同梱。アプリにも入れています）。
 - `ghidra/`: Ghidra 12.2 の `Ghidra/Features/Decompiler/src/decompile/cpp` から、逆コンパイルに必要なファイルだけを写したものです（変更なし）。Apache License 2.0（`ghidra/LICENSE.txt`、`LICENSE-APACHE-2.0`）。
 - `specs/x86/`: Ghidra 12.2 の `Ghidra/Processors/x86/data/languages` から、実行時に必要なファイル（`.ldefs` `.sla` `.cspec` `.pspec`）だけを写したものです。Apache License 2.0。
 - `src/mekiki_decomp.cc`: unforge から渡されたセグメントと関数名で Ghidra の解析器を組み立て、標準入力の命令に従って逆コンパイルする部分です。PE では、セクションを `seg` として、IAT のスロットを `ext <スロット> <DLL!関数名>` として受け取ります。ポインタの大きさは言語 ID で決めます（`x86:LE:32:...` なら 4 バイト、それ以外は 8 バイト）。
