@@ -20,6 +20,8 @@ fn main() {
         .flag_if_supported("-Wno-deprecated-copy")
         .warnings(false)
         .files(&files);
+    // The zlib library's name differs between builds (zlib 1.4 static: zs.lib).
+    let mut zlib = if msvc { "zlib" } else { "z" }.to_owned();
     if msvc {
         // Ghidra's own Windows build: _WINDOWS picks the Win32 file APIs.
         // zlib: ZLIB_ROOT/include and ZLIB_ROOT/lib (vcpkg in CI; see release.yml).
@@ -28,11 +30,14 @@ fn main() {
             let root = std::path::Path::new(&root);
             build.include(root.join("include"));
             println!("cargo:rustc-link-search=native={}", root.join("lib").display());
+            if let Some(n) = ["zlib", "zs", "zlibstatic", "z"].iter().find(|n| root.join("lib").join(format!("{n}.lib")).exists()) {
+                zlib = (*n).to_owned();
+            }
         }
     }
     println!("cargo:rerun-if-env-changed=ZLIB_ROOT");
     build.compile("ghidra_decomp");
-    println!("cargo:rustc-link-lib={}", if msvc { "zlib" } else { "z" });
+    println!("cargo:rustc-link-lib={zlib}");
     println!("cargo:rerun-if-changed=ghidra");
     println!("cargo:rerun-if-changed=src");
 }
