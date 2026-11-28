@@ -9,6 +9,8 @@
 //!             [--strict] [--loader-checks] [--] <file>
 //! unforge disasm [--function <name-substring> | --addr <hex>] [--count <n>]
 //!                [--] <file>
+//! unforge sig build -o <db> [--min-insns <n>] [--min-bytes <n>] [--] <file>...
+//! unforge sig match --db <db> [--] <file>
 //! ```
 
 use std::ffi::OsString;
@@ -71,12 +73,32 @@ pub struct DisasmArgs {
     pub count: usize,
 }
 
+/// Largest `--min-insns` / `--min-bytes` accepted.
+pub const MAX_THRESHOLD: u32 = 1 << 16;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigBuildArgs {
+    /// Where the database is written.
+    pub output: PathBuf,
+    /// ELF files with symbols, or existing databases to merge.
+    pub inputs: Vec<PathBuf>,
+    pub options: unforge_sigs::Options,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigMatchArgs {
+    pub db: PathBuf,
+    pub path: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Help,
     Version,
     Elf(ElfArgs),
     Disasm(DisasmArgs),
+    SigBuild(SigBuildArgs),
+    SigMatch(SigMatchArgs),
 }
 
 /// A problem with the command line itself (exit code 2).
@@ -89,6 +111,11 @@ unforge - read Rust binaries as Rust
 Usage:
   unforge elf [OPTIONS] <FILE>    Print the ELF structure of FILE
   unforge disasm [OPTIONS] <FILE> Disassemble x86 / x86-64 code in FILE
+  unforge sig build -o <DB> [OPTIONS] <FILE>...
+                                  Build a signature database from FILEs
+                                  with symbols (or merge databases)
+  unforge sig match --db <DB> <FILE>
+                                  Name the functions of FILE from DB
   unforge --help                  Print this help
   unforge --version               Print the version
 
@@ -108,6 +135,19 @@ Options for `disasm` (default: the entry point):
       --addr <HEX>       The code at this virtual address (0x prefix optional)
       --count <N>        At most N instructions per function (default 1000)
 
+Options for `sig build`:
+  -o, --output <DB>      Write the database here (required)
+      --min-insns <N>    Skip functions of fewer than N instructions
+                         (default 6)
+      --min-bytes <N>    Skip functions of fewer than N bytes (default 16)
+An input that is already a signature database is merged.
+
+`sig match` prints one line per named function: address, name, and
+`[generic: N]` when N instantiations of one generic function have that
+code, or `[ambiguous: N]` when N unrelated names do (the first is shown).
+A summary, and the dependencies of FILE that no input of DB had, go to
+stderr.
+
 `disasm` prints one instruction per line: address, bytes, Intel syntax.
 Branches, calls and RIP-relative references to a recovered function end in
 `; -> name`. A function of unknown size is disassembled up to its first
@@ -121,7 +161,8 @@ Exit status: 0 on success (also with warnings, unless --strict), 1 if the
 file could not be read or has no readable ELF header, or with --strict if a
 warning was reported, or for `disasm` if the file is not for x86 / x86-64,
 no function name matches, or no requested address is backed by file bytes,
-2 on a command-line error.
+or for `sig` if an input or the database cannot be read or is not for
+x86 / x86-64, 2 on a command-line error.
 ";
 
 /// Parse the arguments after the program name.
@@ -138,6 +179,7 @@ where
         Some("--version" | "-V") => Ok(Command::Version),
         Some("elf") => parse_elf(args),
         Some("disasm") => parse_disasm(args),
+        Some("sig") => parse_sig(args),
         _ => Err(UsageError(format!(
             "unknown command '{}'",
             first.to_string_lossy()
@@ -299,6 +341,126 @@ fn parse_disasm(mut args: impl Iterator<Item = OsString>) -> Result<Command, Usa
     }))
 }
 
+fn is_option(arg: &OsString, only_positional: bool) -> bool {
+    !only_positional && arg.as_encoded_bytes().starts_with(b"-") && arg.as_encoded_bytes() != b"-"
+}
+
+fn threshold(args: &mut impl Iterator<Item = OsString>, opt: &str) -> Result<u32, UsageError> {
+    let v = value(args, opt)?;
+    v.to_str()
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|n| *n <= MAX_THRESHOLD)
+        .ok_or_else(|| {
+            UsageError(format!(
+                "invalid number for '{opt}': '{}' (0 to {MAX_THRESHOLD})",
+                v.to_string_lossy()
+            ))
+        })
+}
+
+fn parse_sig(mut args: impl Iterator<Item = OsString>) -> Result<Command, UsageError> {
+    let Some(sub) = args.next() else {
+        return Err(UsageError(
+            "missing subcommand for 'sig' (build or match)".into(),
+        ));
+    };
+    match sub.to_str() {
+        Some("--help" | "-h") => Ok(Command::Help),
+        Some("build") => parse_sig_build(args),
+        Some("match") => parse_sig_match(args),
+        _ => Err(UsageError(format!(
+            "unknown subcommand 'sig {}' (build or match)",
+            sub.to_string_lossy()
+        ))),
+    }
+}
+
+fn parse_sig_build(mut args: impl Iterator<Item = OsString>) -> Result<Command, UsageError> {
+    let mut output: Option<OsString> = None;
+    let mut inputs: Vec<PathBuf> = Vec::new();
+    let mut options = unforge_sigs::Options::default();
+    let mut only_positional = false;
+    while let Some(arg) = args.next() {
+        if !is_option(&arg, only_positional) {
+            inputs.push(arg.into());
+            continue;
+        }
+        match arg.to_str() {
+            Some("--") => only_positional = true,
+            Some("--help" | "-h") => return Ok(Command::Help),
+            Some(opt @ ("-o" | "--output")) => {
+                if output.is_some() {
+                    return Err(UsageError(format!("'{opt}' given twice")));
+                }
+                output = Some(value(&mut args, opt)?);
+            }
+            Some(opt @ "--min-insns") => options.min_insns = threshold(&mut args, opt)?,
+            Some(opt @ "--min-bytes") => options.min_bytes = threshold(&mut args, opt)?,
+            _ => {
+                return Err(UsageError(format!(
+                    "unknown option '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+        }
+    }
+    let Some(output) = output else {
+        return Err(UsageError("missing '-o <DB>' for 'sig build'".into()));
+    };
+    if inputs.is_empty() {
+        return Err(UsageError("missing <FILE> for 'sig build'".into()));
+    }
+    Ok(Command::SigBuild(SigBuildArgs {
+        output: output.into(),
+        inputs,
+        options,
+    }))
+}
+
+fn parse_sig_match(mut args: impl Iterator<Item = OsString>) -> Result<Command, UsageError> {
+    let mut db: Option<OsString> = None;
+    let mut path: Option<OsString> = None;
+    let mut only_positional = false;
+    while let Some(arg) = args.next() {
+        if !is_option(&arg, only_positional) {
+            if path.is_some() {
+                return Err(UsageError(format!(
+                    "unexpected extra argument '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+            path = Some(arg);
+            continue;
+        }
+        match arg.to_str() {
+            Some("--") => only_positional = true,
+            Some("--help" | "-h") => return Ok(Command::Help),
+            Some(opt @ "--db") => {
+                if db.is_some() {
+                    return Err(UsageError(format!("'{opt}' given twice")));
+                }
+                db = Some(value(&mut args, opt)?);
+            }
+            _ => {
+                return Err(UsageError(format!(
+                    "unknown option '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+        }
+    }
+    let Some(db) = db else {
+        return Err(UsageError("missing '--db <DB>' for 'sig match'".into()));
+    };
+    let Some(path) = path else {
+        return Err(UsageError("missing <FILE> for 'sig match'".into()));
+    };
+    Ok(Command::SigMatch(SigMatchArgs {
+        db: db.into(),
+        path: path.into(),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +580,68 @@ mod tests {
         assert!(p(&["disasm", "--function", "a", "--addr", "1", "x"]).is_err());
         assert!(p(&["disasm", "--header", "x"]).is_err());
         assert!(p(&["disasm", "a", "b"]).is_err());
+    }
+
+    #[test]
+    fn sig_build() {
+        assert_eq!(
+            p(&["sig", "build", "-o", "x.db", "a", "b"]),
+            Ok(Command::SigBuild(SigBuildArgs {
+                output: "x.db".into(),
+                inputs: vec!["a".into(), "b".into()],
+                options: unforge_sigs::Options::default(),
+            }))
+        );
+        let Ok(Command::SigBuild(a)) = p(&[
+            "sig",
+            "build",
+            "a",
+            "--min-insns",
+            "0",
+            "--output",
+            "-",
+            "--min-bytes",
+            "3",
+            "--",
+            "-b",
+        ]) else {
+            panic!("expected sig build");
+        };
+        assert_eq!(a.output, PathBuf::from("-"));
+        assert_eq!(a.inputs, vec![PathBuf::from("a"), PathBuf::from("-b")]);
+        assert_eq!((a.options.min_insns, a.options.min_bytes), (0, 3));
+    }
+
+    #[test]
+    fn sig_match() {
+        assert_eq!(
+            p(&["sig", "match", "f", "--db", "x.db"]),
+            Ok(Command::SigMatch(SigMatchArgs {
+                db: "x.db".into(),
+                path: "f".into(),
+            }))
+        );
+        assert_eq!(p(&["sig", "match", "--help"]), Ok(Command::Help));
+        assert_eq!(p(&["sig", "-h"]), Ok(Command::Help));
+    }
+
+    #[test]
+    fn sig_usage_errors() {
+        assert!(p(&["sig"]).is_err());
+        assert!(p(&["sig", "nope"]).is_err());
+        assert!(p(&["sig", "build"]).is_err());
+        assert!(p(&["sig", "build", "a"]).is_err());
+        assert!(p(&["sig", "build", "-o"]).is_err());
+        assert!(p(&["sig", "build", "-o", "x"]).is_err());
+        assert!(p(&["sig", "build", "-o", "x", "-o", "y", "a"]).is_err());
+        assert!(p(&["sig", "build", "-o", "x", "--min-insns", "-1", "a"]).is_err());
+        assert!(p(&["sig", "build", "-o", "x", "--min-bytes", "99999999", "a"]).is_err());
+        assert!(p(&["sig", "build", "-o", "x", "--bogus", "a"]).is_err());
+        assert!(p(&["sig", "match"]).is_err());
+        assert!(p(&["sig", "match", "f"]).is_err());
+        assert!(p(&["sig", "match", "--db", "x"]).is_err());
+        assert!(p(&["sig", "match", "--db"]).is_err());
+        assert!(p(&["sig", "match", "--db", "x", "a", "b"]).is_err());
+        assert!(p(&["sig", "match", "--db", "x", "--db", "y", "a"]).is_err());
     }
 }

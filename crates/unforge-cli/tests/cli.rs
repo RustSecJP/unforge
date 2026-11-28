@@ -609,6 +609,11 @@ fn bad_command_lines_exit_2() {
         &["disasm", "--count", "0", "x"],
         &["disasm", "--addr", "zz", "x"],
         &["disasm", "--function", "a", "--addr", "1", "x"],
+        &["sig"],
+        &["sig", "build", "x"],
+        &["sig", "build", "-o", "db"],
+        &["sig", "match", "x"],
+        &["sig", "match", "--db", "db"],
     ] {
         let o = run_str(args);
         assert_eq!(o.status.code(), Some(2), "{args:?}");
@@ -627,6 +632,8 @@ fn help_goes_to_stdout_and_succeeds() {
         &["-h"],
         &["elf", "--help"],
         &["disasm", "--help"],
+        &["sig", "build", "--help"],
+        &["sig", "match", "-h"],
         &["help"],
     ] {
         let o = run_str(args);
@@ -991,6 +998,174 @@ fn disasm_anomalous_files_never_panic() {
             let o = run_disasm(p, flags);
             assert_no_panic(&o, &p.display().to_string());
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `unforge sig`
+// ---------------------------------------------------------------------------
+
+fn run_sig(args: &[&std::ffi::OsStr]) -> Output {
+    let mut v: Vec<&std::ffi::OsStr> = vec!["sig".as_ref()];
+    v.extend_from_slice(args);
+    run(&v)
+}
+
+/// A copy of `path` without symbols, made with `objcopy --strip-all`, or
+/// `None` when objcopy is not installed.
+fn stripped_copy(path: &Path, tag: &str) -> Option<PathBuf> {
+    let out = temp_path(tag);
+    let ok = Command::new("objcopy")
+        .arg("--strip-all")
+        .arg(path)
+        .arg(&out)
+        .output()
+        .ok()?
+        .status
+        .success();
+    ok.then_some(out)
+}
+
+/// Build a database from the `unforge` binary itself and match a stripped
+/// copy of it: nearly every function that has a size gets its name back.
+#[test]
+fn sig_build_and_match_own_binary() {
+    if !cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        eprintln!("skipped: needs an x86-64 Linux host");
+        return;
+    }
+    let Some(stripped) = stripped_copy(Path::new(BIN), "sig-stripped") else {
+        eprintln!("skipped: objcopy not found");
+        return;
+    };
+    let db = temp_path("sig-db");
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        db.as_os_str(),
+        BIN.as_ref(),
+    ]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert!(o.stdout.is_empty());
+    assert!(
+        stderr(&o).contains("named functions added"),
+        "{}",
+        stderr(&o)
+    );
+
+    let o = run_sig(&[
+        "match".as_ref(),
+        "--db".as_ref(),
+        db.as_os_str(),
+        stripped.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    let out = stdout(&o);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines.len() > 300, "only {} functions named", lines.len());
+    for l in &lines {
+        let (addr, rest) = l.split_once("  ").expect("two columns");
+        assert_eq!(addr.len(), 16, "{l}");
+        assert!(u64::from_str_radix(addr, 16).is_ok(), "{l}");
+        assert!(!rest.is_empty(), "{l}");
+    }
+    assert!(
+        lines.iter().any(|l| l.ends_with("  unforge::main")),
+        "unforge::main not named"
+    );
+    assert!(stderr(&o).contains("note: named "), "{}", stderr(&o));
+
+    // Merging a database into a new one keeps it.
+    let db2 = temp_path("sig-db2");
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        db2.as_os_str(),
+        db.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert_eq!(
+        std::fs::read(&db).expect("db"),
+        std::fs::read(&db2).expect("db2")
+    );
+}
+
+#[test]
+fn sig_bad_inputs_exit_1() {
+    let garbage = write_temp("sig-garbage", b"not an elf and not a db");
+    let db = temp_path("sig-db-bad");
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        db.as_os_str(),
+        garbage.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+    assert!(!db.exists(), "nothing is written on failure");
+    // A truncated database.
+    let bad_db = write_temp("sig-trunc", b"UFSIGDB\0\x01\0");
+    let o = run_sig(&[
+        "match".as_ref(),
+        "--db".as_ref(),
+        bad_db.as_os_str(),
+        BIN.as_ref(),
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+    assert!(stderr(&o).contains("signature database"), "{}", stderr(&o));
+    // Not a database at all.
+    let o = run_sig(&[
+        "match".as_ref(),
+        "--db".as_ref(),
+        garbage.as_os_str(),
+        BIN.as_ref(),
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+}
+
+#[test]
+fn sig_anomalous_files_never_panic() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/anomalous/files");
+    let mut files = Vec::new();
+    collect_files(&dir, &mut files);
+    assert!(!files.is_empty(), "no files under {}", dir.display());
+    let empty_db = temp_path("sig-empty-db");
+    // Building from a non-ELF file fails, so make an empty database from
+    // a garbage-free start: the minimal ELF has no named functions.
+    let b = minimal_elf(LAYOUTS[0], 0);
+    let elf = write_temp("sig-min", &b.bytes);
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        empty_db.as_os_str(),
+        elf.as_os_str(),
+    ]);
+    assert_no_panic(&o, "minimal elf");
+    for p in &files {
+        let db = temp_path("sig-anom");
+        let o = run_sig(&[
+            "build".as_ref(),
+            "-o".as_ref(),
+            db.as_os_str(),
+            p.as_os_str(),
+        ]);
+        assert_no_panic(&o, &p.display().to_string());
+        if empty_db.exists() {
+            let o = run_sig(&[
+                "match".as_ref(),
+                "--db".as_ref(),
+                empty_db.as_os_str(),
+                p.as_os_str(),
+            ]);
+            assert_no_panic(&o, &p.display().to_string());
+        }
+        // The anomalous file read as a database.
+        let o = run_sig(&[
+            "match".as_ref(),
+            "--db".as_ref(),
+            p.as_os_str(),
+            elf.as_os_str(),
+        ]);
+        assert_no_panic(&o, &p.display().to_string());
     }
 }
 
