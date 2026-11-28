@@ -73,8 +73,7 @@ jobs:
         shell: bash
         run: |
           vcpkg install zlib:x64-windows-static-md
-          echo "LIB=$VCPKG_INSTALLATION_ROOT\\installed\\x64-windows-static-md\\lib;$LIB" >> "$GITHUB_ENV"
-          echo "INCLUDE=$VCPKG_INSTALLATION_ROOT\\installed\\x64-windows-static-md\\include;$INCLUDE" >> "$GITHUB_ENV"
+          echo "ZLIB_ROOT=$VCPKG_INSTALLATION_ROOT\\installed\\x64-windows-static-md" >> "$GITHUB_ENV"
       - name: Rust (toolchain from rust-toolchain.toml)
         shell: bash
         run: |

@@ -9,7 +9,9 @@ fn main() {
     files.sort();
     files.push("src/mekiki_decomp.cc".into());
     files.push("src/printrust.cc".into());
-    cc::Build::new()
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|e| e == "msvc");
+    let mut build = cc::Build::new();
+    build
         .cpp(true)
         .std("c++17")
         .include("ghidra")
@@ -17,9 +19,20 @@ fn main() {
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-deprecated-copy")
         .warnings(false)
-        .files(&files)
-        .compile("ghidra_decomp");
-    println!("cargo:rustc-link-lib=z");
+        .files(&files);
+    if msvc {
+        // Ghidra's own Windows build: _WINDOWS picks the Win32 file APIs.
+        // zlib: ZLIB_ROOT/include and ZLIB_ROOT/lib (vcpkg in CI; see release.yml).
+        build.define("_WINDOWS", None).define("WIN64", None).flag("/EHsc").flag("/bigobj");
+        if let Ok(root) = std::env::var("ZLIB_ROOT") {
+            let root = std::path::Path::new(&root);
+            build.include(root.join("include"));
+            println!("cargo:rustc-link-search=native={}", root.join("lib").display());
+        }
+    }
+    println!("cargo:rerun-if-env-changed=ZLIB_ROOT");
+    build.compile("ghidra_decomp");
+    println!("cargo:rustc-link-lib={}", if msvc { "zlib" } else { "z" });
     println!("cargo:rerun-if-changed=ghidra");
     println!("cargo:rerun-if-changed=src");
 }
