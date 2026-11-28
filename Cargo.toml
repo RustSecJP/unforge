@@ -14,10 +14,10 @@ members = [
 exclude = ["fuzz", "mekiki/src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/RustSecJP/unforge"
+repository = "https://github.com/RustSecJP/mekiki"
 
 [workspace.dependencies]
 zerocopy = { version = "0.8", features = ["derive"] }

@@ -13,7 +13,7 @@ import { Listing, type ListingHandle } from './panels/Listing'
 import { Pane } from './panels/Pane'
 import { ProgramTree, SymbolTree } from './panels/Trees'
 
-const REPO = 'https://github.com/RustSecJP/unforge'
+const REPO = 'https://github.com/RustSecJP/mekiki'
 const now = () => new Date().toLocaleTimeString('en-GB')
 
 type Panes = { program: boolean; symbols: boolean; inspector: boolean; bottom: boolean }
@@ -394,8 +394,8 @@ export function App() {
       'Help',
       [
         { label: ja ? 'Tutorial（使い方の案内）' : 'Tutorial', run: () => setTouring(true) },
-        { label: 'unforge on GitHub', run: () => window.open(REPO, '_blank') },
-        { label: 'About Mekiki', run: () => say('Mekiki 0.1 — a desktop UI for unforge, which reads Rust binaries as Rust. Files are analyzed on this computer only.') },
+        { label: 'Mekiki on GitHub', run: () => window.open(REPO, '_blank') },
+        { label: 'About Mekiki', run: () => say('Mekiki 1.0 — see what is inside a Rust binary. Built on unforge, which reads Rust binaries as Rust. Files are analyzed on this computer only.') },
       ],
     ],
   ]

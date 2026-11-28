@@ -34,9 +34,9 @@ unforge sig match --db std-1.99.0-b940084d7.db malware > /dev/null   # 足りな
 Actions の画面で `sigs` の実行を開き、下の Artifacts から `sig-std` と `sig-crates` を落とします（zip です）。`gh` なら:
 
 ```sh
-gh run list -R RustSecJP/unforge -w sigs
-gh run download <run-id> -R RustSecJP/unforge -n sig-std -D sig-std
-gh run download <run-id> -R RustSecJP/unforge -n sig-crates -D sig-crates
+gh run list -R RustSecJP/mekiki -w sigs
+gh run download <run-id> -R RustSecJP/mekiki -n sig-std -D sig-std
+gh run download <run-id> -R RustSecJP/mekiki -n sig-crates -D sig-crates
 sha256sum -c sig-std/SHA256SUMS
 ```
 

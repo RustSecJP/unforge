@@ -196,15 +196,16 @@ dependencies = [
 
 [[package]]
 name = "unforge-disasm"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "iced-x86",
  "unforge-elf",
+ "unforge-pe",
 ]
 
 [[package]]
 name = "unforge-elf"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "zerocopy",
 ]
@@ -219,6 +220,10 @@ dependencies = [
  "unforge-disasm",
  "unforge-elf",
 ]
+
+[[package]]
+name = "unforge-pe"
+version = "1.0.0"
 
 [[package]]
 name = "unicode-ident"

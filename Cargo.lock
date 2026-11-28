@@ -331,7 +331,7 @@ checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "unforge"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "object 0.41.0",
  "unforge-analysis",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "unforge-analysis"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rustc-demangle",
  "unforge-elf",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "unforge-bench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "gimli",
  "object 0.41.0",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "unforge-disasm"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "iced-x86",
  "unforge-analysis",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "unforge-elf"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dhat",
  "goblin",
@@ -384,11 +384,11 @@ dependencies = [
 
 [[package]]
 name = "unforge-pe"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "unforge-report"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "unforge-sigs"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rustc-demangle",
  "unforge-analysis",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "unforge-testgen"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "unicode-ident"

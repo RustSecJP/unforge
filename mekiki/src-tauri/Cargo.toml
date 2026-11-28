@@ -1,10 +1,10 @@
 [package]
 name = "mekiki"
 description = "Mekiki: a desktop app for reading Rust binaries, built on unforge"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/RustSecJP/unforge"
+repository = "https://github.com/RustSecJP/mekiki"
 publish = false
 
 # Not a member of the unforge workspace (see the root Cargo.toml `exclude`):
