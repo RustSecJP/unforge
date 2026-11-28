@@ -1,7 +1,8 @@
 //! `unforge`: read Rust binaries as Rust.
 //!
-//! Commands: `unforge elf <file>` (the ELF loader) and `unforge disasm
-//! <file>` (x86 / x86-64 disassembly of recovered functions).
+//! Commands: `unforge elf <file>` (the ELF loader), `unforge disasm
+//! <file>` (x86 / x86-64 disassembly of recovered functions) and `unforge
+//! sig build|match` (function signatures, see `sig.rs`).
 //!
 //! This binary must never panic on any input or environment: no `unwrap`,
 //! `expect`, or slice indexing on data derived from the file, and every write
@@ -25,13 +26,14 @@ mod args;
 mod disasm;
 mod names;
 mod print;
+mod sig;
 
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-use args::{Command, DisasmArgs, ElfArgs, HELP};
+use args::{Command, DisasmArgs, ElfArgs, HELP, SigBuildArgs, SigMatchArgs};
 
 /// Exit status for I/O and parse errors.
 const EXIT_FAILURE: u8 = 1;
@@ -96,7 +98,129 @@ fn main() -> ExitCode {
         }
         Command::Elf(a) => elf(&a),
         Command::Disasm(a) => disasm(&a),
+        Command::SigBuild(a) => sig_build(&a),
+        Command::SigMatch(a) => sig_match(&a),
     }
+}
+
+/// `unforge sig build`: adds every input (ELF files with symbols, or
+/// databases, which are merged) and writes the database. Exits with
+/// status 1, writing nothing, if any input cannot be used.
+fn sig_build(a: &SigBuildArgs) -> ExitCode {
+    let mut db = unforge_sigs::Db::new(a.options);
+    let mut err = io::stderr().lock();
+    for path in &a.inputs {
+        let report = |e: &dyn std::fmt::Display| {
+            let _ = writeln!(io::stderr(), "unforge: {}: {e}", path.display());
+            ExitCode::from(EXIT_FAILURE)
+        };
+        let data = match read_input(path) {
+            Ok(d) => d,
+            Err(e) => return report(&e),
+        };
+        if data.starts_with(unforge_sigs::db::MAGIC) {
+            match unforge_sigs::Db::from_bytes(&data) {
+                Ok(other) => {
+                    let _ = writeln!(
+                        err,
+                        "unforge: {}: note: merging {} fingerprints",
+                        path.display(),
+                        other.len()
+                    );
+                    db.merge(other);
+                }
+                Err(e) => return report(&e),
+            }
+            continue;
+        }
+        match db.add_elf(&data) {
+            Ok(s) => {
+                let _ = writeln!(
+                    err,
+                    "unforge: {}: note: {} of {} named functions added \
+                     ({} below the size threshold, {} without readable code)",
+                    path.display(),
+                    s.added,
+                    s.named,
+                    s.too_small,
+                    s.unreadable
+                );
+                if s.named == 0 {
+                    let _ = writeln!(
+                        err,
+                        "unforge: {}: warning: no named functions (stripped?)",
+                        path.display()
+                    );
+                }
+            }
+            Err(e) => return report(&e),
+        }
+    }
+    let bytes = db.to_bytes();
+    if let Err(e) = std::fs::write(&a.output, &bytes) {
+        let _ = writeln!(err, "unforge: {}: {e}", a.output.display());
+        return ExitCode::from(EXIT_FAILURE);
+    }
+    let _ = writeln!(
+        err,
+        "unforge: {}: note: {} fingerprints, {} bytes",
+        a.output.display(),
+        db.len(),
+        bytes.len()
+    );
+    ExitCode::SUCCESS
+}
+
+/// `unforge sig match`: see `sig.rs` for the output format.
+fn sig_match(a: &SigMatchArgs) -> ExitCode {
+    let fail = |p: &Path, e: &dyn std::fmt::Display| {
+        let _ = writeln!(io::stderr(), "unforge: {}: {e}", p.display());
+        ExitCode::from(EXIT_FAILURE)
+    };
+    let db = match read_input(&a.db) {
+        Ok(d) => match unforge_sigs::Db::from_bytes(&d) {
+            Ok(db) => db,
+            Err(e) => return fail(&a.db, &e),
+        },
+        Err(e) => return fail(&a.db, &e),
+    };
+    let data = match read_input(&a.path) {
+        Ok(d) => d,
+        Err(e) => return fail(&a.path, &e),
+    };
+    let matches = match unforge_sigs::match_elf(&db, &data) {
+        Ok(m) => m,
+        Err(e) => return fail(&a.path, &e),
+    };
+    let mut out = BufWriter::new(io::stdout().lock());
+    if let Err(e) = sig::print_matches(&mut out, &matches).and_then(|()| out.flush()) {
+        return stdout_error(&e);
+    }
+    let mut err = io::stderr().lock();
+    let summary = sig::Summary::of(&matches);
+    let _ = writeln!(err, "unforge: {}: note: {summary}", a.path.display());
+    if let Ok(missing) = unforge_sigs::uncovered_dependencies(&db, &data)
+        && !missing.is_empty()
+    {
+        let shown: Vec<String> = missing
+            .iter()
+            .take(sig::MAX_UNCOVERED_SHOWN)
+            .map(|m| disasm::show_name(m))
+            .collect();
+        let more = missing.len().saturating_sub(shown.len());
+        let _ = writeln!(
+            err,
+            "unforge: {}: note: not covered by the database: {}{}",
+            a.path.display(),
+            shown.join(", "),
+            if more > 0 {
+                format!(" and {more} more")
+            } else {
+                String::new()
+            }
+        );
+    }
+    ExitCode::SUCCESS
 }
 
 fn write_stdout(bytes: &[u8]) -> ExitCode {
