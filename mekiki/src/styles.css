@@ -107,6 +107,16 @@ a { color: #0645ad; }
 .l-addr { width: 15ch; flex: none; color: var(--c-addr); }
 .l-bytes { width: 50ch; flex: none; color: var(--c-bytes); }
 .l-ascii { color: var(--c-ascii); }
+.l-ibytes { width: 30ch; flex: none; color: var(--c-bytes); overflow: hidden; }
+.l-mn { width: 9ch; flex: none; color: #00007f; font-weight: 700; }
+.l-mn.flow-call { color: #7a00a8; }
+.l-mn.flow-jump, .l-mn.flow-cond_jump { color: #a85b00; }
+.l-mn.flow-return { color: #b40000; }
+.l-mn.flow-invalid, .l-mn.flow-interrupt { color: #c41b1b; }
+.l-ops { color: #1b1b1b; overflow: hidden; text-overflow: ellipsis; }
+.l-target { color: #0000ff; text-decoration: underline; cursor: pointer; }
+.l-xref { margin-left: 2ch; color: #2a7a2a; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.l-xref:hover { text-decoration: underline; }
 .l-comment { color: var(--c-comment); }
 .lblock { background: #f3f3f3; border-top: 1px solid var(--line-soft); }
 .lfunc { border-top: 1px dashed #c8c8c8; }
@@ -169,3 +179,37 @@ a { color: #0645ad; }
 .statusbar .grow { flex: 1; }
 .statusbar .sfn { color: var(--c-fn); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
 .drop-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(56, 116, 200, 0.18); border: 3px dashed var(--sel-strong); color: #10325f; font-size: 20px; font-weight: 600; pointer-events: none; }
+
+/* tutorial */
+.tour { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+.tour-dim { position: absolute; inset: 0; background: rgba(20, 30, 50, 0.45); }
+.tour-spot { position: absolute; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(20, 30, 50, 0.45), 0 0 0 3px #f5b400; transition: all 0.25s ease; }
+.tour-card { position: absolute; pointer-events: auto; padding: 14px 16px 12px; background: #fff; border: 1px solid #8a8a8a; border-radius: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); font-size: 13px; transition: top 0.25s ease, left 0.25s ease; user-select: text; }
+.tour-card h2 { margin: 2px 0 6px; font-size: 15px; color: #10325f; }
+.tour-body { margin: 0 0 12px; line-height: 1.6; }
+.tour-count { margin: 0; color: var(--muted); font-size: 11px; }
+.tour-x { position: absolute; top: 8px; right: 8px; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.tour-buttons { display: flex; align-items: center; gap: 6px; }
+.tour-buttons .grow { flex: 1; }
+.tour-buttons button { padding: 5px 12px; border: 1px solid var(--line); border-radius: 3px; background: linear-gradient(#fff, #ececec); cursor: pointer; }
+.tour-buttons .tour-next { border-color: #2d62ab; background: linear-gradient(#4a86d6, #3570c0); color: #fff; }
+.tour-buttons .tour-action { border-color: #c98a00; background: linear-gradient(#ffd766, #f5b400); color: #3a2a00; font-weight: 600; }
+.tour-buttons button:disabled { opacity: 0.5; cursor: default; }
+
+/* decompile */
+.decompile { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.d-head { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line-soft); background: #fafafa; }
+.d-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--c-fn); }
+.d-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.d-code { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 6px 10px; font: 12px/1.45 'JetBrains Mono', 'DejaVu Sans Mono', monospace; white-space: pre; user-select: text; }
+.d-wait { margin: auto; text-align: center; color: var(--muted); }
+.d-wait button { margin-top: 4px; padding: 3px 12px; border: 1px solid var(--line); border-radius: 3px; background: linear-gradient(#fff, #ececec); cursor: pointer; }
+.d-error { margin: 10px; color: var(--err); }
+.d-kw { color: #00007f; font-weight: 700; }
+.d-type { color: #007f7f; }
+.d-num { color: #a3007a; }
+.d-str { color: #007a1f; }
+.d-comment { color: #8a8a8a; font-style: italic; }
+.d-var { color: #6b3d00; }
+.d-fn { color: #0000ff; cursor: pointer; }
+.d-fn:hover { text-decoration: underline; }

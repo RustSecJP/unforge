@@ -9,24 +9,59 @@ export interface Opened {
   elapsedMs: number
   outcome: Outcome
   readRange: (offset: number, len: number) => Promise<Uint8Array>
+  /** See unforge_report::code::code_map */
+  codeMap: () => Promise<Uint8Array>
+  disasmAt: (addrs: number[]) => Promise<(InsnText | null)[]>
+  /** C-like code of the function at addr (Ghidra's decompiler, no Java) */
+  decompile: (addr: number) => Promise<Decompiled>
+  cancelDecompile: () => Promise<void>
+}
+
+export interface Decompiled {
+  code: string
+  ms: number
+  total_ms: number
+}
+
+export interface InsnText {
+  addr: number
+  len: number
+  mnemonic: string
+  operands: string
+  flow: 'next' | 'call' | 'jump' | 'cond_jump' | 'return' | 'interrupt' | 'invalid'
+  target: number | null
+}
+
+const none = {
+  readRange: async () => new Uint8Array(),
+  codeMap: async () => new Uint8Array(),
+  disasmAt: async (a: number[]) => a.map(() => null),
+  decompile: async (): Promise<Decompiled> => {
+    throw new Error('No file is open.')
+  },
+  cancelDecompile: async () => {},
 }
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
-async function openPathInTauri(path: string): Promise<Opened> {
+async function openPathInTauri(path: string, command = 'open_file'): Promise<Opened> {
   const { invoke } = await import('@tauri-apps/api/core')
   try {
-    const r = await invoke<{ name: string; path: string; elapsed_ms: number; report: unknown }>('open_file', { path })
+    const r = await invoke<{ name: string; path: string; elapsed_ms: number; report: unknown }>(command, command === 'open_file' ? { path } : {})
     return {
       name: r.name,
       path: r.path,
       elapsedMs: r.elapsed_ms,
       outcome: toOutcome(r.report),
       readRange: async (offset, len) => new Uint8Array(await invoke<ArrayBuffer>('read_range', { offset, len })),
+      codeMap: async () => new Uint8Array(await invoke<ArrayBuffer>('code_map')),
+      disasmAt: (addrs) => invoke<(InsnText | null)[]>('disasm_at', { addrs }),
+      decompile: (addr) => invoke<Decompiled>('decompile', { addr }),
+      cancelDecompile: async () => void (await invoke('cancel_decompile')),
     }
   } catch (e) {
     const name = path.split(/[\\/]/).pop() ?? path
-    return { name, path, elapsedMs: 0, outcome: { ok: false, error: String(e) }, readRange: async () => new Uint8Array() }
+    return { name, path, elapsedMs: 0, outcome: { ok: false, error: String(e) }, ...none }
   }
 }
 
@@ -39,7 +74,25 @@ async function openFileInBrowser(file: File): Promise<Opened> {
     elapsedMs: Number(res.headers.get('x-elapsed-ms') ?? 0),
     outcome,
     readRange: async (offset, len) => new Uint8Array(await file.slice(offset, offset + len).arrayBuffer()),
+    codeMap: async () => new Uint8Array(await (await fetch('/__mekiki/code_map')).arrayBuffer()),
+    disasmAt: async (addrs) => (await fetch('/__mekiki/disasm', { method: 'POST', body: JSON.stringify(addrs) })).json(),
+    decompile: async (addr) => {
+      const res = await fetch('/__mekiki/decompile', { method: 'POST', body: String(addr) })
+      if (!res.ok) throw new Error(await res.text())
+      return res.json()
+    },
+    cancelDecompile: async () => {},
   }
+}
+
+/** Opens a sample Rust binary for the tutorial: Mekiki's own executable in
+ * the app, or the dev server's report example in the browser preview. */
+export async function openSample(): Promise<Opened | null> {
+  if (isTauri) return openPathInTauri('mekiki', 'open_self')
+  const res = await fetch('/__mekiki/sample')
+  if (!res.ok) return null
+  const blob = await res.blob()
+  return openFileInBrowser(new File([blob], 'report (sample)'))
 }
 
 /** Shows the system's open dialog (or a file input in the browser). */

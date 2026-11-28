@@ -4,7 +4,7 @@
 // over a million rows.
 import type { FunctionRow, Report, SectionRow } from './report'
 
-export const RowKind = { Block: 0, Function: 1, Bytes: 2, NoBits: 3 } as const
+export const RowKind = { Block: 0, Function: 1, Bytes: 2, NoBits: 3, Insn: 4 } as const
 export type RowKind = (typeof RowKind)[keyof typeof RowKind]
 
 export interface ListingModel {
@@ -21,6 +21,23 @@ export interface ListingModel {
 
 export const BYTES_PER_ROW = 16
 
+/** function start -> instruction lengths (see unforge_report::code::code_map) */
+export type CodeMap = Map<number, Uint8Array>
+
+export function parseCodeMap(bytes: Uint8Array): CodeMap {
+  const out: CodeMap = new Map()
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let p = 0
+  while (p + 12 <= bytes.length) {
+    const start = Number(view.getBigUint64(p, true))
+    const count = view.getUint32(p + 8, true)
+    if (p + 12 + count > bytes.length) break
+    out.set(start, bytes.subarray(p + 12, p + 12 + count))
+    p += 12 + count
+  }
+  return out
+}
+
 export function loadedSections(report: Report): SectionRow[] {
   return report.sections
     .filter((s) => s.flags.includes('A') && s.size > 0 && s.addr > 0)
@@ -28,12 +45,13 @@ export function loadedSections(report: Report): SectionRow[] {
     .slice(0, 65535)
 }
 
-export function buildListing(report: Report, maxRows = 8_000_000): ListingModel {
+export function buildListing(report: Report, code: CodeMap = new Map(), maxRows = 12_000_000): ListingModel {
   const blocks = loadedSections(report)
   const fns = report.function_rows
   // Rough upper bound for the arrays; grown if needed.
   let cap = 1024
   for (const b of blocks) cap += b.nobits ? 2 : Math.ceil(b.size / BYTES_PER_ROW) + 1
+  for (const lens of code.values()) cap += lens.length
   cap = Math.min(cap + fns.length * 2, maxRows)
   let kind = new Uint8Array(cap)
   let addr = new Float64Array(cap)
@@ -80,12 +98,22 @@ export function buildListing(report: Report, maxRows = 8_000_000): ListingModel 
     let next = fi
     while (pos < end) {
       while (next < fns.length && fns[next].start < pos) next++
+      let lens: Uint8Array | undefined
       if (next < fns.length && fns[next].start === pos) {
         if (!push(RowKind.Function, pos, 0, bi, next)) break outer
+        lens = code.get(pos)
         next++
         while (next < fns.length && fns[next].start === pos) next++
       }
       const boundary = next < fns.length && fns[next].start < end ? fns[next].start : end
+      if (lens) {
+        // Instructions, up to the next function or the end of the section.
+        for (let k = 0; k < lens.length && pos + lens[k] <= boundary; k++) {
+          if (!push(RowKind.Insn, pos, lens[k], bi, -1)) break outer
+          pos += lens[k]
+        }
+        if (pos >= boundary) continue
+      }
       const l = Math.min(BYTES_PER_ROW, boundary - pos)
       if (!push(RowKind.Bytes, pos, l, bi, -1)) break outer
       pos += l
@@ -115,6 +143,7 @@ export function rowOfAddress(m: ListingModel, target: number): number {
   for (let i = r; i < m.count && m.addr[i] === m.addr[best]; i++) {
     if (m.kind[i] === RowKind.Function && m.addr[i] === target) return i
   }
+  // Inside an instruction, its row; else the row whose bytes hold `target`.
   const k = m.kind[best]
   const b = m.blocks[m.block[best]]
   if (target >= b.addr + b.size && k !== RowKind.Block) return -1

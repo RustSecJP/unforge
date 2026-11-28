@@ -83,7 +83,7 @@ export function ProgramTree({ model, name, sel, onSelect, onGo }: { model: Model
           muted: s.kind !== 'LOAD',
           selected: sel?.kind === 'segment' && sel.index === s.index,
           onSelect: () => onSelect({ kind: 'segment', index: s.index }),
-          onActivate: s.kind === 'LOAD' ? () => onGo(s.vaddr) : undefined,
+          onActivate: s.kind === 'LOAD' ? () => (onGo(s.vaddr), onSelect({ kind: 'segment', index: s.index })) : undefined,
         })
     rows.push({ id: 'sections', depth: 1, icon: <Folder size={14} />, label: 'Sections', hint: r.sections.length, open: open.has('sections'), onSelect: () => {} })
     if (open.has('sections'))
@@ -99,8 +99,8 @@ export function ProgramTree({ model, name, sel, onSelect, onGo }: { model: Model
           muted: !loaded,
           selected: sel?.kind === 'section' && sel.index === s.index,
           onSelect: () => {
-            onSelect({ kind: 'section', index: s.index })
             if (loaded) onGo(s.addr)
+            onSelect({ kind: 'section', index: s.index })
           },
         })
       }

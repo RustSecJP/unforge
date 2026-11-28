@@ -1,5 +1,5 @@
 // Indexes derived once from a report, shared by all panes.
-import { buildListing, type ListingModel } from './listing'
+import { buildListing, type CodeMap, type ListingModel } from './listing'
 import { normalizeCrate, ownerCrate, type CrateRow, type Report } from './report'
 
 export type Selection =
@@ -19,9 +19,15 @@ export interface Model {
   groups: { user: number[]; std: number[]; unknown: number[]; byCrate: Map<string, number[]> }
   /** lowercased function names, '' when unnamed */
   lowerNames: string[]
+  /** function start -> index into report.function_rows */
+  fnByStart: Map<number, number>
+  /** exact function name -> index (first) */
+  fnByName: Map<string, number>
+  /** functions that have instructions */
+  codeFunctions: number
 }
 
-export function buildModel(report: Report): Model {
+export function buildModel(report: Report, code: CodeMap = new Map()): Model {
   const crateByName = new Map<string, number>()
   report.crates.forEach((c, i) => {
     const k = normalizeCrate(c.name)
@@ -41,7 +47,13 @@ export function buildModel(report: Report): Model {
     else if (f.owner === 'std') groups.std.push(i)
     else groups.unknown.push(i)
   })
-  return { report, listing: buildListing(report), crateByName, groups, lowerNames }
+  const fnByStart = new Map<number, number>()
+  report.function_rows.forEach((f, i) => fnByStart.set(f.start, i))
+  const fnByName = new Map<string, number>()
+  report.function_rows.forEach((f, i) => {
+    if (f.name && !fnByName.has(f.name)) fnByName.set(f.name, i)
+  })
+  return { report, listing: buildListing(report, code), crateByName, groups, lowerNames, fnByStart, fnByName, codeFunctions: code.size }
 }
 
 export function crateOfFunction(m: Model, fi: number): CrateRow | null {

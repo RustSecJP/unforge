@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseAddress } from './format'
-import { buildListing, functionAt, rowOfAddress, RowKind } from './listing'
+import { buildListing, functionAt, parseCodeMap, rowOfAddress, RowKind } from './listing'
 import type { FunctionRow, Report, SectionRow } from './report'
 
 const sec = (index: number, name: string, addr: number, size: number, extra: Partial<SectionRow> = {}): SectionRow => ({
@@ -75,6 +75,42 @@ describe('Listing rows', () => {
     expect(functionAt(fns, 0x30)).toBe(1)
     expect(functionAt(fns, 0x47)).toBe(2)
     expect(functionAt(fns, 0x48)).toBe(-1)
+  })
+})
+
+describe('instructions', () => {
+  it('shows instruction rows inside a function and bytes after them', () => {
+    const code = new Map([[0x2000, new Uint8Array([1, 4, 3])]])
+    const m = buildListing(report([sec(1, '.text', 0x2000, 12)], [fn(0x2000, 8, 'f')]), code)
+    expect(rows(m)).toEqual([
+      [RowKind.Block, 0x2000, 0],
+      [RowKind.Function, 0x2000, 0],
+      [RowKind.Insn, 0x2000, 1],
+      [RowKind.Insn, 0x2001, 4],
+      [RowKind.Insn, 0x2005, 3],
+      [RowKind.Bytes, 0x2008, 4],
+    ])
+    expect(rowOfAddress(m, 0x2003)).toBe(3)
+  })
+
+  it('never runs past the next function', () => {
+    const code = new Map([[0x2000, new Uint8Array([4, 4, 4])]])
+    const m = buildListing(report([sec(1, '.text', 0x2000, 16)], [fn(0x2000, 12, 'f'), fn(0x2006, 4, 'g')]), code)
+    expect(rows(m).slice(2, 4)).toEqual([
+      [RowKind.Insn, 0x2000, 4],
+      [RowKind.Bytes, 0x2004, 2],
+    ])
+  })
+
+  it('reads the binary code map', () => {
+    const b = new Uint8Array(12 + 2)
+    const v = new DataView(b.buffer)
+    v.setBigUint64(0, 0x401000n, true)
+    v.setUint32(8, 2, true)
+    b.set([3, 5], 12)
+    const m = parseCodeMap(b)
+    expect([...m.keys()]).toEqual([0x401000])
+    expect([...m.get(0x401000)!]).toEqual([3, 5])
   })
 })
 

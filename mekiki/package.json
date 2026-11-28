@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:decomp": "node scripts/build-decomp.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.28",

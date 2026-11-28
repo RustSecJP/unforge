@@ -135,7 +135,7 @@ export function Bottom({
   const wIdx = useMemo(() => (r ? r.warnings.map((_, i) => i) : []), [r])
 
   return (
-    <section className="pane bottom" tabIndex={-1}>
+    <section className="pane bottom" tabIndex={-1} data-tour="bottom">
       <header className="pane-title tabs">
         {tabs.map(([k, label, n]) => (
           <button key={k} type="button" className={tab === k ? 'on' : ''} onClick={() => onTab(k)} disabled={k !== 'console' && !r}>

@@ -20,6 +20,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod code;
+
 use serde::Serialize;
 use unforge_analysis::{Analysis, Group, names};
 use unforge_elf::{Class, ElfFile, Endian};

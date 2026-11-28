@@ -1,11 +1,13 @@
 import { ArrowLeft, ArrowRight, FolderOpen, FunctionSquare, MapPin, Package, Search, Folder } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import { isTauri, listenForDrops, pickAndOpen, type Opened } from './backend'
+import { isTauri, listenForDrops, openSample, pickAndOpen, type Opened } from './backend'
+import { Tour, type TourStep } from './Tour'
 import { formatBytes, formatCount, hex, parseAddress } from './format'
-import { functionAt, loadedSections, rowOfAddress, RowKind } from './listing'
+import { functionAt, loadedSections, parseCodeMap, rowOfAddress, RowKind } from './listing'
 import { buildModel, shortName, type Model, type Selection } from './model'
 import { Bottom, type BottomTab, type LogLine } from './panels/Bottom'
+import { Decompile } from './panels/Decompile'
 import { Inspector } from './panels/Inspector'
 import { Listing, type ListingHandle } from './panels/Listing'
 import { Pane } from './panels/Pane'
@@ -73,10 +75,18 @@ interface Suggestion {
 }
 
 /** The toolbar's one box: an address, a function, a section or a crate. */
-function GoTo({ model, onGo, onSelect, inputRef }: { model: Model | null; onGo: (a: number) => void; onSelect: (s: Selection) => void; inputRef: React.RefObject<HTMLInputElement | null> }) {
+function GoTo({ model, onGo, onSelect, inputRef, preset }: { model: Model | null; onGo: (a: number) => void; onSelect: (s: Selection) => void; inputRef: React.RefObject<HTMLInputElement | null>; preset: { text: string; n: number } }) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const [open, setOpen] = useState(false)
+  // The tutorial types into the box for the user.
+  useEffect(() => {
+    if (!preset.n) return
+    setQ(preset.text)
+    setActive(0)
+    setOpen(true)
+    inputRef.current?.focus()
+  }, [preset, inputRef])
   const items = useMemo<Suggestion[]>(() => {
     if (!model || !q.trim()) return []
     const r = model.report
@@ -87,7 +97,7 @@ function GoTo({ model, onGo, onSelect, inputRef }: { model: Model | null; onGo: 
     for (const s of r.sections) {
       if (out.length > 6) break
       if (s.name && s.name.toLowerCase().includes(t) && s.flags.includes('A'))
-        out.push({ icon: <Folder size={13} />, label: s.name, hint: `section · ${hex(s.addr)}`, run: () => (onSelect({ kind: 'section', index: s.index }), onGo(s.addr)) })
+        out.push({ icon: <Folder size={13} />, label: s.name, hint: `section · ${hex(s.addr)}`, run: () => (onGo(s.addr), onSelect({ kind: 'section', index: s.index })) })
     }
     r.crates.forEach((c, i) => {
       if (out.length < 12 && c.name.toLowerCase().includes(t))
@@ -120,7 +130,7 @@ function GoTo({ model, onGo, onSelect, inputRef }: { model: Model | null; onGo: 
     inputRef.current?.blur()
   }
   return (
-    <div className="goto">
+    <div className="goto" data-tour="goto">
       <Search size={13} />
       <input
         ref={inputRef}
@@ -162,6 +172,9 @@ function GoTo({ model, onGo, onSelect, inputRef }: { model: Model | null; onGo: 
   )
 }
 
+const ja = typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('ja')
+const t = (jaText: string, en: string) => (ja ? jaText : en)
+
 export function App() {
   const [opened, setOpened] = useState<Opened | null>(null)
   const [model, setModel] = useState<Model | null>(null)
@@ -176,56 +189,59 @@ export function App() {
   const fileInput = useRef<HTMLInputElement>(null)
   const listing = useRef<ListingHandle>(null)
   const gotoInput = useRef<HTMLInputElement>(null)
-  // Row to bring into view once the Listing for a newly opened file exists.
-  const pendingScroll = useRef<number | null>(null)
+  // Row the Listing starts at for a newly opened file (the entry point).
+  const [startRow, setStartRow] = useState(0)
+  const [gotoPreset, setGotoPreset] = useState({ text: '', n: 0 })
+  const [rightTab, setRightTab] = useState<'decompile' | 'inspector'>('decompile')
+  const [touring, setTouring] = useState(() => localStorage.getItem('mekiki.tutorial.done') !== '1')
 
   const say = useCallback((text: string, tone?: LogLine['tone']) => setLog((l) => [...l.slice(-500), { time: now(), text, tone }]), [])
 
   const show = useCallback(
-    (o: Opened) => {
-      setLoading(null)
+    async (o: Opened) => {
       if (!o.outcome.ok) {
+        setLoading(null)
         say(`Could not read ${o.name}: ${o.outcome.error}`, 'error')
         setBottomTab('console')
         return
       }
       const r = o.outcome.report
-      const m = buildModel(r)
+      const started = performance.now()
+      const code = parseCodeMap(await o.codeMap())
+      const m = buildModel(r, code)
+      setLoading(null)
       setOpened(o)
       setModel(m)
       setSel(null)
-      setHistory({ list: [], at: -1 })
       say(
         `Opened ${o.name} (${formatBytes(r.file.size)}, ${r.file.class} ${r.file.machine} ${r.file.kind}) in ${o.elapsedMs} ms: ${formatCount(r.crates.length)} crates, ${formatCount(r.functions.total)} functions, ${formatCount(r.warnings.length + r.warnings_omitted)} warnings.`,
         'ok',
       )
       if (r.rustc_commit) say(`Built with rustc commit ${r.rustc_commit}.`)
+      if (code.size > 0) {
+        let n = 0
+        for (const l of code.values()) n += l.length
+        say(`Disassembled ${formatCount(code.size)} functions (${formatCount(n)} instructions) in ${Math.round(performance.now() - started)} ms.`)
+      } else say(`No disassembly: ${r.file.machine} is not supported yet (x86 and x86-64 are).`)
       if (r.functions.total <= 1) say('Almost no functions were found: the file is probably stripped. Crates found from source paths are still listed.')
       // Start at the entry point when it is in a loaded section, else at the first row.
       const entryRow = r.file.entry ? rowOfAddress(m.listing, r.file.entry) : -1
       const start = entryRow >= 0 ? entryRow : 0
       setCursor(m.listing.count ? start : null)
-      pendingScroll.current = start
+      setStartRow(start)
+      setHistory(m.listing.count ? { list: [m.listing.addr[start]], at: 0 } : { list: [], at: -1 })
     },
     [say],
   )
 
-  useEffect(() => {
-    if (pendingScroll.current === null || !model) return
-    const row = pendingScroll.current
-    pendingScroll.current = null
-    listing.current?.scrollToRow(row)
-    listing.current?.focus()
-  }, [model])
-
   const openDialog = useCallback(async () => {
     const o = await pickAndOpen(fileInput.current)
-    if (o) show(o)
+    if (o) await show(o)
   }, [show])
 
   useEffect(() => {
     let off: (() => void) | null = null
-    void listenForDrops((name) => setLoading(name), show, setHover).then((f) => (off = f))
+    void listenForDrops((name) => setLoading(name), (o) => void show(o), setHover).then((f) => (off = f))
     return () => off?.()
   }, [show])
 
@@ -239,6 +255,8 @@ export function App() {
       }
       setCursor(row)
       listing.current?.scrollToRow(row)
+      const fi = model.fnByStart.get(a)
+      setSel(fi !== undefined ? { kind: 'function', index: fi } : { kind: 'address', addr: a })
       if (record)
         setHistory((h) => {
           const list = [...h.list.slice(0, h.at + 1), a].slice(-200)
@@ -329,7 +347,7 @@ export function App() {
       [
         { label: 'Program Tree', run: () => toggle('program'), checked: panes.program },
         { label: 'Symbol Tree', run: () => toggle('symbols'), checked: panes.symbols },
-        { label: 'Inspector', run: () => toggle('inspector'), checked: panes.inspector },
+        { label: 'Decompile / Inspector', run: () => toggle('inspector'), checked: panes.inspector },
         { label: 'Console / Tables', run: () => toggle('bottom'), checked: panes.bottom },
         { label: 'Functions', run: () => (setPanes((p) => ({ ...p, bottom: true })), setBottomTab('functions')), disabled: !model },
         { label: 'Crates', run: () => (setPanes((p) => ({ ...p, bottom: true })), setBottomTab('crates')), disabled: !model },
@@ -339,6 +357,7 @@ export function App() {
     [
       'Help',
       [
+        { label: ja ? 'Tutorial（使い方の案内）' : 'Tutorial', run: () => setTouring(true) },
         { label: 'unforge on GitHub', run: () => window.open(REPO, '_blank') },
         { label: 'About Mekiki', run: () => say('Mekiki 0.1 — a desktop UI for unforge, which reads Rust binaries as Rust. Files are analyzed on this computer only.') },
       ],
@@ -346,6 +365,88 @@ export function App() {
   ]
 
   const left = panes.program || panes.symbols
+  const endTour = () => {
+    setTouring(false)
+    localStorage.setItem('mekiki.tutorial.done', '1')
+  }
+  const showMePanel = (k: keyof Panes) => setPanes((p) => ({ ...p, [k]: true }))
+  const tourSteps: TourStep[] = [
+    {
+      title: t('Mekiki へようこそ', 'Welcome to Mekiki'),
+      body: t(
+        'Rust で作られたプログラム（バイナリ）の中身を見る道具です。まず練習用のファイルを開きましょう。Mekiki 自身も Rust のプログラムなので、それを開きます。',
+        'Mekiki shows what is inside a program built with Rust. Let’s open a file to practice on: Mekiki itself, which is a Rust program too.',
+      ),
+      action: { label: t('練習用のファイルを開く', 'Open the practice file'), advance: true, run: async () => { const o = await openSample(); if (o) await show(o) } },
+      ready: () => model !== null,
+    },
+    {
+      target: '[data-tour=listing]',
+      title: t('真ん中：プログラムの命令', 'Center: the program’s instructions'),
+      body: t(
+        'プログラムの中身を、上から順に1行ずつ表示します。左から「アドレス（場所）」「機械語のバイト」「命令」です。いまはプログラムが最初に動く場所（エントリポイント）にいます。青い太字の行は関数の始まりです。',
+        'The program, one instruction per line: address, machine-code bytes, instruction. You start where the program starts running (the entry point). Bold blue lines are where functions begin.',
+      ),
+    },
+    {
+      target: '.l-xref',
+      title: t('緑の「→ 名前」は飛び先', 'Green “→ name” is where it goes'),
+      body: t(
+        '命令が呼び出したり指したりしている関数の名前です。押すと、その関数へ移ります。下のボタンで、代わりに押してみます。',
+        'The function an instruction calls or points to. Click it to go there — or let the button do it.',
+      ),
+      action: { label: t('押してみる', 'Show me'), advance: true, run: () => (document.querySelector('.l-xref') as HTMLElement | null)?.click() },
+    },
+    {
+      target: '[data-tour=back]',
+      title: t('戻る', 'Back'),
+      body: t('移る前の場所へ戻ります。キーボードなら Alt+← です（進むは Alt+→）。', 'Returns to where you were. Keyboard: Alt+← (and Alt+→ to go forward).'),
+      action: { label: t('戻ってみる', 'Show me'), run: back },
+    },
+    {
+      target: '[data-tour=goto]',
+      title: t('名前やアドレスで探す', 'Find by name or address'),
+      body: t(
+        'G キーを押すとここに入力できます。関数名・アドレス（例: 0x401000）・ライブラリ名を打つと候補が出て、Enter でそこへ移ります。',
+        'Press G to type here: a function name, an address (like 0x401000) or a library name. Pick a suggestion with Enter.',
+      ),
+      action: { label: t('「main」を探してみる', 'Search for “main”'), run: () => setGotoPreset((p) => ({ text: 'main', n: p.n + 1 })) },
+    },
+    {
+      target: '[data-tour=symbols]',
+      title: t('左下：関数を持ち主ごとに', 'Lower left: functions by owner'),
+      body: t(
+        '「Program」はこのプログラム自身のコード、「Crates」は使っているライブラリ（名前と版）、「Standard library」は Rust の標準ライブラリです。怪しいプログラムを調べるときは、まず Program の中を見るのが近道です。',
+        '“Program” is the program’s own code, “Crates” the libraries it uses (with versions), “Standard library” Rust’s own. When checking a suspicious program, start with Program.',
+      ),
+      action: { label: t('表示する', 'Show it'), run: () => showMePanel('symbols') },
+    },
+    {
+      target: '[data-tour=inspector]',
+      title: t('右：選んだものの詳しい情報', 'Right: details of what you pick'),
+      body: t(
+        '選んだ関数やライブラリの詳しい情報が出ます。ライブラリなら crates.io（Rust のライブラリの置き場）へのリンクもあります。',
+        'Details of the selected function or library, with links to crates.io for libraries.',
+      ),
+      action: { label: t('表示する', 'Show it'), run: () => showMePanel('inspector') },
+    },
+    {
+      target: '[data-tour=bottom]',
+      title: t('下：一覧表', 'Bottom: tables'),
+      body: t(
+        '「Functions」は関数の一覧です。見出しの「Size」を押して大きい順に並べると、大きな処理が見つかります。「Crates」はライブラリと版の一覧、「Warnings」はファイルの作りの怪しい点です。',
+        '“Functions” lists every function — click “Size” to find the big ones. “Crates” lists libraries and versions; “Warnings” lists odd things about the file’s structure.',
+      ),
+      action: { label: t('関数の一覧を開く', 'Open Functions'), run: () => (showMePanel('bottom'), setBottomTab('functions')) },
+    },
+    {
+      title: t('これで一通りです', 'That’s the tour'),
+      body: t(
+        '自分のファイルは Ctrl+O か、ウィンドウにドロップすると開けます。この案内は、メニューの Help → Tutorial でいつでも見直せます。',
+        'Open your own files with Ctrl+O or by dropping them on the window. Replay this any time from Help → Tutorial.',
+      ),
+    },
+  ]
   return (
     <div className="app">
       <MenuBar menus={menus} />
@@ -354,14 +455,14 @@ export function App() {
           <FolderOpen size={16} />
         </button>
         <span className="tsep" />
-        <button type="button" title="Back (Alt+←)" onClick={back} disabled={history.at <= 0}>
+        <button type="button" title="Back (Alt+←)" onClick={back} disabled={history.at <= 0} data-tour="back">
           <ArrowLeft size={16} />
         </button>
         <button type="button" title="Forward (Alt+→)" onClick={forward} disabled={history.at >= history.list.length - 1}>
           <ArrowRight size={16} />
         </button>
         <span className="tsep" />
-        <GoTo model={model} onGo={goTo} onSelect={setSel} inputRef={gotoInput} />
+        <GoTo model={model} onGo={goTo} onSelect={setSel} inputRef={gotoInput} preset={gotoPreset} />
       </div>
       <input ref={fileInput} type="file" hidden />
 
@@ -380,7 +481,7 @@ export function App() {
                     {panes.program && panes.symbols && <Separator className="sep-h" />}
                     {panes.symbols && (
                       <Panel minSize={100}>
-                        <Pane title="Symbol Tree">{model ? <SymbolTree model={model} sel={sel} onSelect={setSel} onGo={goTo} /> : <p className="empty">No file</p>}</Pane>
+                        <Pane title="Symbol Tree" tour="symbols">{model ? <SymbolTree model={model} sel={sel} onSelect={setSel} onGo={goTo} /> : <p className="empty">No file</p>}</Pane>
                       </Panel>
                     )}
                   </Group>
@@ -389,9 +490,9 @@ export function App() {
               </>
             )}
             <Panel minSize={360}>
-              <Pane title={opened ? `Listing: ${opened.name}` : 'Listing'} tools={cursorAddr !== null ? <code>{hex(cursorAddr)}</code> : undefined}>
+              <Pane tour="listing" title={opened ? `Listing: ${opened.name}` : 'Listing'} tools={cursorAddr !== null ? <code>{hex(cursorAddr)}</code> : undefined}>
                 {model && opened ? (
-                  <Listing ref={listing} model={model} readRange={opened.readRange} cursorRow={cursor} onCursor={onCursor} onOpenFunction={(fi) => setSel({ kind: 'function', index: fi })} />
+                  <Listing ref={listing} model={model} readRange={opened.readRange} disasmAt={opened.disasmAt} onGo={goTo} initialRow={startRow} cursorRow={cursor} onCursor={onCursor} onOpenFunction={(fi) => setSel({ kind: 'function', index: fi })} />
                 ) : (
                   <div className="welcome">
                     {loading ? (
@@ -416,8 +517,26 @@ export function App() {
             {panes.inspector && (
               <>
                 <Separator className="sep-v" />
-                <Panel defaultSize={300} minSize={200}>
-                  <Pane title="Inspector">{model ? <Inspector model={model} sel={sel} /> : <p className="empty">No file</p>}</Pane>
+                <Panel defaultSize={420} minSize={220}>
+                  <section className="pane" tabIndex={-1} data-tour="inspector">
+                    <header className="pane-title tabs">
+                      <button type="button" className={rightTab === 'decompile' ? 'on' : ''} onClick={() => setRightTab('decompile')}>
+                        Decompile
+                      </button>
+                      <button type="button" className={rightTab === 'inspector' ? 'on' : ''} onClick={() => setRightTab('inspector')}>
+                        Inspector
+                      </button>
+                    </header>
+                    <div className="pane-body">
+                      {!model || !opened ? (
+                        <p className="empty">No file</p>
+                      ) : rightTab === 'decompile' ? (
+                        <Decompile model={model} opened={opened} fi={cursorFn} onGo={goTo} />
+                      ) : (
+                        <Inspector model={model} sel={sel} />
+                      )}
+                    </div>
+                  </section>
                 </Panel>
               </>
             )}
@@ -447,6 +566,13 @@ export function App() {
         {cursorAddr !== null && <code>{hex(cursorAddr)}</code>}
       </footer>
       {hover && <div className="drop-overlay">Drop to open</div>}
+      {touring && (
+        <Tour
+          steps={tourSteps}
+          onClose={endTour}
+          labels={{ next: t('次へ', 'Next'), back: t('戻る', 'Back'), done: t('終わる', 'Done'), skip: t('閉じる', 'Close'), of: '/' }}
+        />
+      )}
     </div>
   )
 }

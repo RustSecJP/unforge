@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 
 /** A Ghidra-style docked window: a title bar and a body. */
-export function Pane({ title, tools, children, className }: { title: ReactNode; tools?: ReactNode; children: ReactNode; className?: string }) {
+export function Pane({ title, tools, children, className, tour }: { title: ReactNode; tools?: ReactNode; children: ReactNode; className?: string; tour?: string }) {
   return (
-    <section className={`pane ${className ?? ''}`} tabIndex={-1}>
+    <section className={`pane ${className ?? ''}`} tabIndex={-1} data-tour={tour}>
       <header className="pane-title">
         <span className="pane-name">{title}</span>
         {tools && <span className="pane-tools">{tools}</span>}
