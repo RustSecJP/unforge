@@ -2,6 +2,7 @@
 //! this process, and serves byte ranges of it to the Listing.
 
 mod decomp;
+mod sigs;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -16,8 +17,14 @@ const MAX_RANGE: u64 = 1 << 20;
 
 #[derive(Default)]
 struct Opened {
+    path: Option<PathBuf>,
     bytes: Arc<Vec<u8>>,
+    /// The report's functions (start, size), for the code map
+    spans: Vec<(u64, u64)>,
 }
+
+#[derive(Default)]
+struct SigState(Mutex<sigs::Signatures>);
 
 #[derive(Default)]
 struct AppState(Mutex<Opened>);
@@ -29,9 +36,15 @@ struct DecompState {
 }
 
 /// Reads the file at `path`, keeps its bytes for `read_range`, and returns
-/// the report JSON (see `unforge_report::Report`), plus the file name.
+/// the report (see `unforge_report::Report`) with the fingerprint databases
+/// applied, plus the file name.
 #[tauri::command]
-fn open_file(path: PathBuf, state: State<'_, AppState>, dstate: State<'_, DecompState>) -> Result<serde_json::Value, String> {
+fn open_file(
+    path: PathBuf,
+    state: State<'_, AppState>,
+    dstate: State<'_, DecompState>,
+    sstate: State<'_, SigState>,
+) -> Result<serde_json::Value, String> {
     let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     if !meta.is_file() {
         return Err(format!("{} is not a file", path.display()));
@@ -41,32 +54,85 @@ fn open_file(path: PathBuf, state: State<'_, AppState>, dstate: State<'_, Decomp
     }
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let started = std::time::Instant::now();
-    let json = unforge_report::report_json(&bytes);
+    let sig = sstate.0.lock().map_err(|_| "busy".to_owned())?;
+    let result = unforge_report::report_with_signatures(&bytes, sig.db.as_ref());
+    let sig_files = sig.files.clone();
+    drop(sig);
     let elapsed_ms = started.elapsed().as_millis() as u64;
-    let report: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let (report, applied, spans, functions) = match result {
+        Ok((r, applied)) => {
+            let spans = r.function_spans();
+            let functions = r.function_names();
+            (serde_json::to_value(&r).map_err(|e| e.to_string())?, Some(applied), spans, functions)
+        }
+        Err(f) => (serde_json::to_value(&f).map_err(|e| e.to_string())?, None, Vec::new(), Vec::new()),
+    };
     let bytes = Arc::new(bytes);
     if let Ok(mut opened) = state.0.lock() {
         opened.bytes = bytes.clone();
+        opened.path = Some(path.clone());
+        opened.spans = spans;
     }
     dstate.killer.kill();
     if let Ok(mut d) = dstate.decompiler.lock() {
-        d.reset(decomp::target(path.clone(), bytes));
+        d.reset(decomp::target(path.clone(), bytes, &functions));
     }
     Ok(serde_json::json!({
         "name": name,
         "path": path.display().to_string(),
         "elapsed_ms": elapsed_ms,
         "report": report,
+        "signatures": applied,
+        "signature_files": sig_files,
     }))
 }
 
 /// Opens Mekiki's own executable: a real Rust binary to practice on in the
 /// tutorial, with nothing to download.
 #[tauri::command]
-fn open_self(state: State<'_, AppState>, dstate: State<'_, DecompState>) -> Result<serde_json::Value, String> {
+fn open_self(
+    state: State<'_, AppState>,
+    dstate: State<'_, DecompState>,
+    sstate: State<'_, SigState>,
+) -> Result<serde_json::Value, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    open_file(exe, state, dstate)
+    open_file(exe, state, dstate, sstate)
+}
+
+/// The fingerprint databases in use.
+#[tauri::command]
+fn signatures(sstate: State<'_, SigState>) -> Result<sigs::Summary, String> {
+    Ok(sstate.0.lock().map_err(|_| "busy".to_owned())?.summary())
+}
+
+/// Copies fingerprint databases into the signatures folder and reloads.
+#[tauri::command]
+fn import_signatures(paths: Vec<PathBuf>, sstate: State<'_, SigState>) -> Result<sigs::Summary, String> {
+    let mut s = sstate.0.lock().map_err(|_| "busy".to_owned())?;
+    sigs::import(&s.dir, &paths)?;
+    *s = sigs::Signatures::load(s.dir.clone());
+    Ok(s.summary())
+}
+
+/// Adds the open file's functions (it must still have symbols) to the
+/// user's own database, and reloads. Returns how many names were added.
+#[tauri::command]
+fn add_to_signatures(state: State<'_, AppState>, sstate: State<'_, SigState>) -> Result<usize, String> {
+    let bytes = state.0.lock().map_err(|_| "busy".to_owned())?.bytes.clone();
+    if bytes.is_empty() {
+        return Err("No file is open.".to_owned());
+    }
+    let mut s = sstate.0.lock().map_err(|_| "busy".to_owned())?;
+    let added = sigs::add_to_mine(&s.dir, &bytes)?;
+    *s = sigs::Signatures::load(s.dir.clone());
+    Ok(added)
+}
+
+/// The path of the open file, to open it again after the databases change.
+#[tauri::command]
+fn current_path(state: State<'_, AppState>) -> Option<String> {
+    state.0.lock().ok()?.path.as_ref().map(|p| p.display().to_string())
 }
 
 /// The decompiler helper sits next to the app executable (a Tauri sidecar).
@@ -128,7 +194,7 @@ fn read_range(offset: u64, len: u64, state: State<'_, AppState>) -> Response {
 #[tauri::command]
 fn code_map(state: State<'_, AppState>) -> Response {
     match state.0.lock() {
-        Ok(o) => Response::new(unforge_report::code::code_map(&o.bytes)),
+        Ok(o) => Response::new(unforge_report::code::code_map_for(&o.bytes, &o.spans)),
         Err(_) => Response::new(Vec::new()),
     }
 }
@@ -147,7 +213,25 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .manage(DecompState::default())
-        .invoke_handler(tauri::generate_handler![open_file, open_self, read_range, code_map, disasm_at, decompile, cancel_decompile])
+        .setup(|app| {
+            let dir = app.path().app_data_dir().map(|d| d.join("signatures")).unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            app.manage(SigState(Mutex::new(sigs::Signatures::load(dir))));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            open_file,
+            open_self,
+            read_range,
+            code_map,
+            disasm_at,
+            decompile,
+            cancel_decompile,
+            signatures,
+            import_signatures,
+            add_to_signatures,
+            current_path
+        ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| eprintln!("mekiki: {e}"));
 }

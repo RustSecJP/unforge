@@ -21,6 +21,7 @@ function Props({ rows }: { rows: [string, ReactNode][] }) {
 }
 
 const HOW_FOUND: Record<FoundIn, string> = {
+  signatures: 'Only fingerprints point to it: functions in this file match known code of this crate. The version is unknown.',
   both: 'Found from a source path that carries the exact version, and from function names in the symbols.',
   path: 'Found from a source path like …/registry/src/…/name-1.2.3/… left in panic messages or debug info. No function name points to it — common in stripped binaries.',
   symbols: 'Only function names point to it. No source path with a version was found, so the version is unknown.',
@@ -60,9 +61,36 @@ function FunctionInfo({ model, fi }: { model: Model; fi: number }) {
           ['Address', <code>{hex(f.start)}</code>],
           ['Size', f.size ? `${formatCount(f.size)} bytes` : 'unknown'],
           ['Owner', crate ? `${crate.name} ${crate.version ?? ''}` : ownerLabel(f.owner)],
-          ['Named', f.name ? 'from symbols' : 'no — unnamed'],
+          [
+            'Named',
+            f.named_by === 'symbols'
+              ? 'from symbols'
+              : f.named_by === 'signature'
+                ? f.signature?.status === 'same_generic'
+                  ? 'by fingerprint (same generic function, type unknown)'
+                  : 'by fingerprint (one match)'
+                : f.signature?.status === 'ambiguous'
+                  ? 'no — fingerprints disagree'
+                  : 'no — unnamed',
+          ],
         ]}
       />
+      {f.named_by === 'signature' && (
+        <div className="tip">
+          <Lightbulb size={14} />
+          <p>This name is inferred: the function's code matches a function in a fingerprint database. Identical code under another name is possible.</p>
+        </div>
+      )}
+      {f.signature && f.signature.candidates.length > 1 && (
+        <div className="cands">
+          <p className="muted">Fingerprint candidates{f.signature.more ? ` (and ${f.signature.more} more)` : ''}:</p>
+          <ul>
+            {f.signature.candidates.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {crate && <CrateLinks c={crate} />}
     </>
   )

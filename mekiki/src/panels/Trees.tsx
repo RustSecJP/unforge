@@ -120,7 +120,7 @@ export function SymbolTree({ model, sel, onSelect, onGo }: { model: Model; sel: 
       id: `${idPrefix}f${fi}`,
       depth,
       icon: <FunctionSquare size={13} className="ic-fn" />,
-      label: shortName(f.name, f.start),
+      label: f.named_by === 'signature' ? <span className="sig-name" title="Named by a fingerprint match">≈ {shortName(f.name, f.start)}</span> : shortName(f.name, f.start),
       selected: sel?.kind === 'function' && sel.index === fi,
       onSelect: () => {
         onSelect({ kind: 'function', index: fi })

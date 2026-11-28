@@ -22,13 +22,14 @@ use std::collections::BTreeMap;
 
 pub mod code;
 pub mod setup;
+pub mod signatures;
 
 use serde::Serialize;
 use unforge_analysis::{Analysis, Group, names};
 use unforge_elf::{Class, ElfFile, Endian};
 
 /// Bumped when the shape of [`Report`] changes (the UI checks it).
-pub const REPORT_VERSION: u32 = 2;
+pub const REPORT_VERSION: u32 = 3;
 
 /// At most this many diagnostics are put in a report.
 pub const MAX_WARNINGS: usize = 1000;
@@ -97,6 +98,11 @@ pub struct FunctionRow {
     pub name: Option<String>,
     /// `user`, `std`, `dep:<crate>` (normalized), or `None` when unknown.
     pub owner: Option<String>,
+    /// Where `name` comes from: `symbols` (the file's own symbol tables) or
+    /// `signature` (a fingerprint matched a known function); `None` when unnamed.
+    pub named_by: Option<&'static str>,
+    /// What the fingerprint database said about this function, if one was used.
+    pub signature: Option<signatures::SignatureInfo>,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,6 +156,8 @@ pub enum FoundIn {
     Symbols,
     /// Both.
     Both,
+    /// Only function names put back by fingerprints.
+    Signatures,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,8 +203,10 @@ pub fn report(data: &[u8]) -> Result<Report, Failure> {
             function_rows.push(FunctionRow {
                 start: f.start,
                 size: f.size,
+                named_by: f.name.as_ref().map(|_| "symbols"),
                 name: f.name.clone(),
                 owner,
+                signature: None,
             });
         } else {
             functions_omitted += 1;
@@ -282,6 +292,35 @@ pub fn report(data: &[u8]) -> Result<Report, Failure> {
         warnings,
         warnings_omitted,
     })
+}
+
+/// [`report`], then the function starts the fingerprint matcher finds and,
+/// with `db`, names for functions without symbols ([`signatures::apply`]).
+pub fn report_with_signatures(
+    data: &[u8],
+    db: Option<&unforge_sigs::Db>,
+) -> Result<(Report, signatures::Applied), Failure> {
+    let mut r = report(data)?;
+    let applied = signatures::apply(&mut r, data, db);
+    Ok((r, applied))
+}
+
+impl Report {
+    /// The functions as (`start`, `size`), for [`code::code_map_for`].
+    pub fn function_spans(&self) -> Vec<(u64, u64)> {
+        self.function_rows
+            .iter()
+            .map(|f| (f.start, f.size))
+            .collect()
+    }
+
+    /// The functions as (`start`, name), for [`setup::decompiler_setup_for`].
+    pub fn function_names(&self) -> Vec<(u64, Option<String>)> {
+        self.function_rows
+            .iter()
+            .map(|f| (f.start, f.name.clone()))
+            .collect()
+    }
 }
 
 /// [`report`] as JSON: a [`Report`], or a [`Failure`] (which has `error`).

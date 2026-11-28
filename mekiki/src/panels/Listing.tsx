@@ -189,7 +189,10 @@ export function Listing({
             return (
               <div key={r} className={`${cls} lfunc`} style={style} onMouseDown={() => onCursor(r)} onDoubleClick={() => onOpenFunction(fi)}>
                 <span className="l-addr">{fmtAddr(a, width)}</span>
-                <span className="l-fn">{shortName(f.name, f.start)}</span>
+                <span className={`l-fn ${f.named_by === 'signature' ? 'sig' : ''}`} title={f.named_by === 'signature' ? 'Named by a fingerprint match' : undefined}>
+                  {f.named_by === 'signature' ? '≈ ' : ''}
+                  {shortName(f.name, f.start)}
+                </span>
                 <span className="l-owner" data-owner={f.owner ?? 'unknown'}>
                   {crate ? `${crate.name}${crate.version ? ` ${crate.version}` : ''}` : ownerLabel(f.owner)}
                 </span>

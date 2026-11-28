@@ -1761,6 +1761,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "unforge-report",
+ "unforge-sigs",
 ]
 
 [[package]]
@@ -3707,6 +3708,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unforge-analysis",
+ "unforge-disasm",
+ "unforge-elf",
+ "unforge-sigs",
+]
+
+[[package]]
+name = "unforge-sigs"
+version = "0.1.0"
+dependencies = [
  "unforge-analysis",
  "unforge-disasm",
  "unforge-elf",

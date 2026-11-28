@@ -204,9 +204,10 @@ fn request(r: &mut Running, addr: u64, lang: &'static str) -> Result<(String, u6
     }
 }
 
-/// What the helper needs for a file (see `unforge_report::setup`).
-pub fn target(path: PathBuf, data: Arc<Vec<u8>>) -> Target {
-    let (language, setup) = match unforge_report::setup::decompiler_setup(&data) {
+/// What the helper needs for a file (see `unforge_report::setup`), with
+/// the functions of the report (fingerprints may have added starts and names).
+pub fn target(path: PathBuf, data: Arc<Vec<u8>>, functions: &[(u64, Option<String>)]) -> Target {
+    let (language, setup) = match unforge_report::setup::decompiler_setup_for(&data, functions) {
         Some((lang, lines)) => (Some(lang.to_owned()), lines),
         None => (None, String::new()),
     };

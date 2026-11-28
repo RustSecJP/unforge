@@ -15,11 +15,11 @@ const sec = (index: number, name: string, addr: number, size: number, extra: Par
   nobits: false,
   ...extra,
 })
-const fn = (start: number, size: number, name: string | null = null): FunctionRow => ({ start, size, name, owner: null })
+const fn = (start: number, size: number, name: string | null = null): FunctionRow => ({ start, size, name, owner: null, named_by: name ? 'symbols' : null, signature: null })
 
 function report(sections: SectionRow[], fns: FunctionRow[]): Report {
   return {
-    version: 2,
+    version: 3,
     file: { size: 0, class: 'ELF64', endian: 'little', machine: 'x86-64', kind: 'executable', entry: 0, stripped: false, sections: sections.length, segments: 0 },
     rustc_commit: null,
     functions: { total: fns.length, user: 0, dependency: 0, std: 0, unknown: fns.length },

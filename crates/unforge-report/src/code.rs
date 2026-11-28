@@ -35,27 +35,41 @@ pub fn code_map(data: &[u8]) -> Vec<u8> {
     let Ok(analysis) = Analysis::new(data) else {
         return Vec::new();
     };
-    let elf = analysis.elf();
-    let Some(bitness) = bitness_of(elf) else {
+    let fns: Vec<(u64, u64)> = analysis
+        .functions()
+        .iter()
+        .map(|f| (f.start, f.size))
+        .collect();
+    code_map_for(data, &fns)
+}
+
+/// [`code_map`] for a given list of functions (`start`, `size`; 0 = unknown),
+/// for example a report's rows after fingerprints added starts. The list
+/// must be sorted by start.
+pub fn code_map_for(data: &[u8], functions: &[(u64, u64)]) -> Vec<u8> {
+    let Ok(elf) = ElfFile::parse(data) else {
+        return Vec::new();
+    };
+    let Some(bitness) = bitness_of(&elf) else {
         return Vec::new();
     };
     let map = elf.memory_map();
     let mut out = Vec::new();
     let mut total = 0usize;
-    for f in analysis.functions() {
+    for &(start, size) in functions {
         if total >= MAX_CODE_MAP_INSNS {
             break;
         }
-        let Some(bytes) = function_bytes_in(&map, data, f.start, f.size) else {
+        let Some(bytes) = function_bytes_in(&map, data, start, size) else {
             continue;
         };
         let max = MAX_INSNS_PER_FUNCTION.min(MAX_CODE_MAP_INSNS - total);
-        let insns = disassemble_function_bytes(bytes, f.start, f.size, bitness, max);
+        let insns = disassemble_function_bytes(bytes, start, size, bitness, max);
         if insns.is_empty() {
             continue;
         }
         total += insns.len();
-        out.extend_from_slice(&f.start.to_le_bytes());
+        out.extend_from_slice(&start.to_le_bytes());
         out.extend_from_slice(&u32::try_from(insns.len()).unwrap_or(u32::MAX).to_le_bytes());
         out.extend(insns.iter().map(|i| i.len));
     }

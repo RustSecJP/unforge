@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, FolderOpen, FunctionSquare, MapPin, Package, Search, Folder } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import { isTauri, listenForDrops, openSample, pickAndOpen, type Opened } from './backend'
+import { addToSignatures, importSignatures, isTauri, listenForDrops, openSample, pickAndOpen, reopenCurrent, type Opened } from './backend'
 import { Tour, type TourStep } from './Tour'
 import { formatBytes, formatCount, hex, parseAddress } from './format'
 import { functionAt, loadedSections, parseCodeMap, rowOfAddress, RowKind } from './listing'
@@ -218,6 +218,10 @@ export function App() {
         'ok',
       )
       if (r.rustc_commit) say(`Built with rustc commit ${r.rustc_commit}.`)
+      const sg = o.signatures
+      if (sg && sg.added_starts > 0) say(`Found ${formatCount(sg.added_starts)} more function starts from calls and unwind tables.`)
+      if (o.signatureFiles.length === 0) say('No fingerprint databases loaded: stripped functions stay unnamed. File → Load Fingerprint Databases…')
+      else if (sg) say(`Fingerprints (${o.signatureFiles.join(', ')}): named ${formatCount(sg.named)} functions${sg.ambiguous ? `, ${formatCount(sg.ambiguous)} ambiguous` : ''}. Names marked ≈ are inferred.`, sg.named ? 'ok' : undefined)
       if (code.size > 0) {
         let n = 0
         for (const l of code.values()) n += l.length
@@ -311,6 +315,33 @@ export function App() {
     else setSel({ kind: 'address', addr: m.addr[row] })
   }
 
+  const loadSignatures = async () => {
+    try {
+      const sum = await importSignatures()
+      if (!sum) return
+      say(`Fingerprint databases: ${sum.files.join(', ') || 'none'} (${formatCount(sum.fingerprints)} fingerprints).`, 'ok')
+      for (const b of sum.broken) say(`Could not read ${b}`, 'error')
+      const o = await reopenCurrent()
+      if (o) await show(o)
+    } catch (e) {
+      say(String(e), 'error')
+    }
+  }
+
+  const addThisFile = async () => {
+    try {
+      const added = await addToSignatures()
+      say(
+        added > 0
+          ? `Added ${formatCount(added)} named functions of this file to your fingerprints (mine.db). Other stripped files will get these names.`
+          : 'Nothing added: this file has no function names left (it is stripped), or they are all too small.',
+        added > 0 ? 'ok' : undefined,
+      )
+    } catch (e) {
+      say(String(e), 'error')
+    }
+  }
+
   const close = () => {
     setOpened(null)
     setModel(null)
@@ -331,6 +362,8 @@ export function App() {
       [
         { label: 'Open…', keys: 'Ctrl+O', run: () => void openDialog() },
         { label: 'Close File', run: close, disabled: !model },
+        { label: 'Load Fingerprint Databases…', run: () => void loadSignatures(), disabled: !isTauri },
+        { label: 'Add This File to My Fingerprints', run: () => void addThisFile(), disabled: !isTauri || !model },
       ],
     ],
     [

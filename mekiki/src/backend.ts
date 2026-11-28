@@ -1,13 +1,17 @@
 // Where files come from and how bytes are read: the Tauri app (Rust in the
 // same process), or the browser during `npm run dev:web` (the dev server runs
 // the report, and bytes are read from the File object).
-import { toOutcome, type Outcome } from './report'
+import { toOutcome, type Outcome, type SignaturesApplied } from './report'
 
 export interface Opened {
   name: string
   path: string | null
   elapsedMs: number
   outcome: Outcome
+  /** null when no file could be analyzed */
+  signatures: SignaturesApplied | null
+  /** fingerprint database files in use */
+  signatureFiles: string[]
   readRange: (offset: number, len: number) => Promise<Uint8Array>
   /** See unforge_report::code::code_map */
   codeMap: () => Promise<Uint8Array>
@@ -49,12 +53,17 @@ export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in
 async function openPathInTauri(path: string, command = 'open_file'): Promise<Opened> {
   const { invoke } = await import('@tauri-apps/api/core')
   try {
-    const r = await invoke<{ name: string; path: string; elapsed_ms: number; report: unknown }>(command, command === 'open_file' ? { path } : {})
+    const r = await invoke<{ name: string; path: string; elapsed_ms: number; report: unknown; signatures: SignaturesApplied | null; signature_files: string[] }>(
+      command,
+      command === 'open_file' ? { path } : {},
+    )
     return {
       name: r.name,
       path: r.path,
       elapsedMs: r.elapsed_ms,
       outcome: toOutcome(r.report),
+      signatures: r.signatures,
+      signatureFiles: r.signature_files,
       readRange: async (offset, len) => new Uint8Array(await invoke<ArrayBuffer>('read_range', { offset, len })),
       codeMap: async () => new Uint8Array(await invoke<ArrayBuffer>('code_map')),
       disasmAt: (addrs) => invoke<(InsnText | null)[]>('disasm_at', { addrs }),
@@ -63,18 +72,21 @@ async function openPathInTauri(path: string, command = 'open_file'): Promise<Ope
     }
   } catch (e) {
     const name = path.split(/[\\/]/).pop() ?? path
-    return { name, path, elapsedMs: 0, outcome: { ok: false, error: String(e) }, ...none }
+    return { name, path, elapsedMs: 0, outcome: { ok: false, error: String(e) }, signatures: null, signatureFiles: [], ...none }
   }
 }
 
 async function openFileInBrowser(file: File): Promise<Opened> {
   const res = await fetch('/__mekiki/report', { method: 'POST', body: file })
-  const outcome: Outcome = res.ok ? toOutcome(await res.json()) : { ok: false, error: await res.text() }
+  const body = res.ok ? await res.json() : null
+  const outcome: Outcome = body ? toOutcome(body.report ?? body) : { ok: false, error: await res.text() }
   return {
     name: file.name,
     path: null,
     elapsedMs: Number(res.headers.get('x-elapsed-ms') ?? 0),
     outcome,
+    signatures: body?.signatures ?? null,
+    signatureFiles: body?.signature_files ?? [],
     readRange: async (offset, len) => new Uint8Array(await file.slice(offset, offset + len).arrayBuffer()),
     codeMap: async () => new Uint8Array(await (await fetch('/__mekiki/code_map')).arrayBuffer()),
     disasmAt: async (addrs) => (await fetch('/__mekiki/disasm', { method: 'POST', body: JSON.stringify(addrs) })).json(),
@@ -156,4 +168,37 @@ export async function listenForDrops(onStart: (name: string) => void, onOpen: (o
     window.removeEventListener('dragleave', leave)
     window.removeEventListener('drop', drop)
   }
+}
+
+export interface SignatureSummary {
+  dir: string
+  files: string[]
+  broken: string[]
+  fingerprints: number
+}
+
+/** Picks fingerprint database files and copies them into Mekiki's folder. */
+export async function importSignatures(): Promise<SignatureSummary | null> {
+  if (!isTauri) throw new Error('Loading fingerprint databases needs the desktop app.')
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const picked = await open({ multiple: true, directory: false, title: 'Load fingerprint databases', filters: [{ name: 'Fingerprint database', extensions: ['db'] }] })
+  const paths = Array.isArray(picked) ? picked : picked ? [picked] : []
+  if (paths.length === 0) return null
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<SignatureSummary>('import_signatures', { paths })
+}
+
+/** Adds the open file (with symbols) to the user's own database; returns names added. */
+export async function addToSignatures(): Promise<number> {
+  if (!isTauri) throw new Error('Building fingerprint databases needs the desktop app.')
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<number>('add_to_signatures')
+}
+
+/** Opens the current file again (after the databases changed). */
+export async function reopenCurrent(): Promise<Opened | null> {
+  if (!isTauri) return null
+  const { invoke } = await import('@tauri-apps/api/core')
+  const path = await invoke<string | null>('current_path')
+  return path ? openPathInTauri(path) : null
 }

@@ -218,3 +218,9 @@ a { color: #0645ad; }
 .d-lang button + button { border-left: 1px solid var(--line); }
 .d-lang button.on { background: var(--sel-strong); color: #fff; }
 .d-note { color: #1e7b34; background: #eef8f0; border-radius: 2px; }
+
+/* names inferred from fingerprints */
+.sig-name, .l-fn.sig { font-style: italic; }
+.sig-name { color: #3d5a8a; }
+.cands ul { margin: 4px 0 8px; padding-left: 18px; font-size: 11.5px; word-break: break-all; }
+.cands li { margin: 2px 0; }

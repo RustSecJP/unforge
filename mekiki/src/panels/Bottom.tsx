@@ -167,7 +167,16 @@ export function Bottom({
             }}
             columns={[
               { key: 'addr', label: 'Address', width: '120px', value: (i) => r.function_rows[i].start, render: (i) => <code>{hex(r.function_rows[i].start)}</code> },
-              { key: 'name', label: 'Name', width: 'minmax(200px, 1fr)', value: (i) => shortName(r.function_rows[i].name, r.function_rows[i].start) },
+              {
+                key: 'name',
+                label: 'Name',
+                width: 'minmax(200px, 1fr)',
+                value: (i) => shortName(r.function_rows[i].name, r.function_rows[i].start),
+                render: (i) => {
+                  const f = r.function_rows[i]
+                  return f.named_by === 'signature' ? <span className="sig-name" title="Named by a fingerprint match">≈ {shortName(f.name, f.start)}</span> : shortName(f.name, f.start)
+                },
+              },
               { key: 'size', label: 'Size', width: '90px', num: true, value: (i) => r.function_rows[i].size },
               {
                 key: 'owner',
@@ -197,7 +206,7 @@ export function Bottom({
                 key: 'found',
                 label: 'Found in',
                 width: '140px',
-                value: (i) => ({ both: 'path + symbols', path: 'source path', symbols: 'symbols only' })[r.crates[i].found_in],
+                value: (i) => ({ both: 'path + symbols', path: 'source path', symbols: 'symbols only', signatures: 'fingerprints only' })[r.crates[i].found_in],
               },
             ]}
           />

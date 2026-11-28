@@ -145,8 +145,22 @@ fn clean(name: &str) -> String {
 /// `None` when the file cannot be decompiled (not an ELF, or another CPU).
 pub fn decompiler_setup(data: &[u8]) -> Option<(&'static str, String)> {
     let analysis = Analysis::new(data).ok()?;
-    let elf = analysis.elf();
-    let lang = language(elf)?;
+    let fns: Vec<(u64, Option<String>)> = analysis
+        .functions()
+        .into_iter()
+        .map(|f| (f.start, f.name))
+        .collect();
+    decompiler_setup_for(data, &fns)
+}
+
+/// [`decompiler_setup`] for a given list of functions (`start`, name), for
+/// example a report's rows after fingerprints added starts and names.
+pub fn decompiler_setup_for(
+    data: &[u8],
+    functions: &[(u64, Option<String>)],
+) -> Option<(&'static str, String)> {
+    let elf = ElfFile::parse(data).ok()?;
+    let lang = language(&elf)?;
     let mut out = String::new();
     if let Ok(phdrs) = elf.program_headers() {
         for p in phdrs.iter() {
@@ -170,14 +184,14 @@ pub fn decompiler_setup(data: &[u8]) -> Option<(&'static str, String)> {
     }
     // Every known function start, named or not: the decompiler also uses
     // them as boundaries, so flow does not run on into the next function.
-    for f in analysis.functions() {
-        match f.name.as_deref().map(clean).filter(|n| !n.is_empty()) {
-            Some(name) => writeln!(out, "sym {:x} {name}", f.start),
-            None => writeln!(out, "sym {:x} FUN_{:08x}", f.start, f.start),
+    for (start, name) in functions {
+        match name.as_deref().map(clean).filter(|n| !n.is_empty()) {
+            Some(name) => writeln!(out, "sym {start:x} {name}"),
+            None => writeln!(out, "sym {start:x} FUN_{start:08x}"),
         }
         .ok();
     }
-    for (slot, target) in pointer_slots(elf) {
+    for (slot, target) in pointer_slots(&elf) {
         let _ = match target {
             SlotTarget::Address(a) => writeln!(out, "ptr {slot:x} {a:x}"),
             SlotTarget::Import(n) => writeln!(out, "ext {slot:x} {n}"),

@@ -20,7 +20,9 @@ function devReport(): Plugin {
       // The last uploaded file stays here so code_map / disasm can read it.
       const dir = mkdtempSync(join(tmpdir(), 'mekiki-'))
       const file = join(dir, 'input')
-      const run = (args: string[]) => execFileSync(exe, args, { maxBuffer: 1 << 30 })
+      // MEKIKI_SIG_DB=<file.db> applies a fingerprint database, like the app does.
+      const sig = process.env.MEKIKI_SIG_DB ? ['--sigs', process.env.MEKIKI_SIG_DB] : []
+      const run = (args: string[]) => execFileSync(exe, [...sig, ...args], { maxBuffer: 1 << 30 })
       const body = (req: import('node:http').IncomingMessage) =>
         new Promise<Buffer>((resolve) => {
           const chunks: Buffer[] = []
@@ -34,7 +36,8 @@ function devReport(): Plugin {
           const json = run([file]).toString()
           res.setHeader('content-type', 'application/json')
           res.setHeader('x-elapsed-ms', String(Date.now() - started))
-          res.end(json)
+          // like the app: say which fingerprint databases were used
+          res.end(sig.length ? json.replace(/^\{/, `{"signature_files":${JSON.stringify([sig[1].split('/').pop()])},`) : json)
         } catch (e) {
           res.statusCode = 500
           res.end(String(e))
@@ -51,7 +54,7 @@ function devReport(): Plugin {
       server.middlewares.use('/__mekiki/decompile', async (req, res) => {
         const [addrText, langText] = (await body(req)).toString().split(' ')
         const addr = Number(addrText)
-        const setup = spawnSync(exe, ['--decomp-setup', file], { maxBuffer: 1 << 28 })
+        const setup = spawnSync(exe, [...sig, '--decomp-setup', file], { maxBuffer: 1 << 28 })
         if (setup.status !== 0) {
           res.statusCode = 400
           res.end('Decompiling is only available for x86 and x86-64 files for now.')
@@ -60,12 +63,13 @@ function devReport(): Plugin {
         const [lang, ...lines] = setup.stdout.toString().split('\n')
         const input = [...lines.filter(Boolean), `lang ${langText === 'c' ? 'c' : 'rust'}`, `decompile ${addr.toString(16)}`].join('\n') + '\n'
         const started = Date.now()
-        const out = spawnSync(helper, [specs, file, lang], { input, maxBuffer: 1 << 28, timeout: 60000 }).stdout?.toString() ?? ''
-        const end = /^@@END (\d+)ms$/m.exec(out)
+        const run = spawnSync(helper, [specs, file, lang], { input, maxBuffer: 1 << 28, timeout: 60000 })
+        const out = run.stdout?.toString() ?? ''
+        const end = /^@@END (\d+)ms\b/m.exec(out)
         const err = /^@@ERROR (.*)$/m.exec(out)
         if (!end) {
           res.statusCode = 500
-          res.end(err ? `The decompiler could not handle this function: ${err[1]}` : 'The decompiler stopped.')
+          res.end(err ? `The decompiler could not handle this function: ${err[1]}` : `The decompiler stopped (status ${run.status}, signal ${run.signal}, ${run.error?.message ?? ''}).`)
           return
         }
         const code = spawnSync(exe, ['--annotate', file], { input: out.slice(0, end.index), maxBuffer: 1 << 28 }).stdout.toString()

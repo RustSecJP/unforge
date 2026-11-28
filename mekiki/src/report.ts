@@ -1,7 +1,7 @@
 // The JSON of `unforge_report::Report` (crates/unforge-report/src/lib.rs).
 // Keep in step with `REPORT_VERSION` there.
 
-export const REPORT_VERSION = 2
+export const REPORT_VERSION = 3
 
 export interface FileSummary {
   size: number
@@ -23,12 +23,28 @@ export interface FunctionCounts {
   unknown: number
 }
 
+export interface SignatureInfo {
+  status: 'unique' | 'same_generic' | 'ambiguous'
+  candidates: string[]
+  more: number
+}
+
 export interface FunctionRow {
   start: number
   size: number
   name: string | null
   /** `user`, `std`, `dep:<crate>` or null */
   owner: string | null
+  /** where the name comes from */
+  named_by: 'symbols' | 'signature' | null
+  signature: SignatureInfo | null
+}
+
+/** What the fingerprint databases did for a file (unforge_report::signatures::Applied). */
+export interface SignaturesApplied {
+  added_starts: number
+  named: number
+  ambiguous: number
 }
 
 export interface SectionRow {
@@ -52,7 +68,7 @@ export interface SegmentRow {
   memsz: number
 }
 
-export type FoundIn = 'path' | 'symbols' | 'both'
+export type FoundIn = 'path' | 'symbols' | 'both' | 'signatures'
 
 export interface CrateRow {
   name: string
