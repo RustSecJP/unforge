@@ -1,0 +1,29 @@
+[package]
+name = "mekiki"
+description = "Mekiki: a desktop app for reading Rust binaries, built on unforge"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/RustSecJP/unforge"
+publish = false
+
+# Not a member of the unforge workspace (see the root Cargo.toml `exclude`):
+# Tauri's dependency tree stays out of unforge's Cargo.lock.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unforge-report = { path = "../../crates/unforge-report" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+codegen-units = 1
+lto = true

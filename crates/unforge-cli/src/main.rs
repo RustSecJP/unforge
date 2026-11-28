@@ -1,6 +1,7 @@
 //! `unforge`: read Rust binaries as Rust.
 //!
-//! Stage 1 only exposes the ELF loader: `unforge elf <file>`.
+//! Commands: `unforge elf <file>` (the ELF loader) and `unforge disasm
+//! <file>` (x86 / x86-64 disassembly of recovered functions).
 //!
 //! This binary must never panic on any input or environment: no `unwrap`,
 //! `expect`, or slice indexing on data derived from the file, and every write
@@ -21,6 +22,7 @@
 )]
 
 mod args;
+mod disasm;
 mod names;
 mod print;
 
@@ -29,7 +31,7 @@ use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-use args::{Command, ElfArgs, HELP};
+use args::{Command, DisasmArgs, ElfArgs, HELP};
 
 /// Exit status for I/O and parse errors.
 const EXIT_FAILURE: u8 = 1;
@@ -93,6 +95,7 @@ fn main() -> ExitCode {
             write_stdout(concat!("unforge ", env!("CARGO_PKG_VERSION"), "\n").as_bytes())
         }
         Command::Elf(a) => elf(&a),
+        Command::Disasm(a) => disasm(&a),
     }
 }
 
@@ -143,6 +146,89 @@ fn elf(a: &ElfArgs) -> ExitCode {
     }
     // Dropping `p` flushes the BufWriter again; after a broken pipe that flush
     // fails silently (BufWriter's Drop ignores errors), which is what we want.
+}
+
+/// `unforge disasm`: see `disasm.rs` for the output format.
+///
+/// Exits with status 1 when the file cannot be read, is not for x86, when
+/// no function matches `--function`, or when nothing could be disassembled
+/// (the address is not backed by file bytes). ELF diagnostics are not
+/// printed here; `unforge elf` reports them.
+fn disasm(a: &DisasmArgs) -> ExitCode {
+    let report = |e: &dyn std::fmt::Display| {
+        let _ = writeln!(io::stderr(), "unforge: {}: {e}", a.path.display());
+        ExitCode::from(EXIT_FAILURE)
+    };
+    let data = match read_input(&a.path) {
+        Ok(d) => d,
+        Err(e) => return report(&e),
+    };
+    let analysis = match unforge_analysis::Analysis::new(&data) {
+        Ok(an) => an,
+        Err(e) => return report(&e),
+    };
+    let elf = analysis.elf();
+    let header = elf.header();
+    let Some(bitness) = unforge_disasm::bitness_for(header.machine, header.class) else {
+        return report(&format!(
+            "cannot disassemble code for {}: only x86 and x86-64 are supported",
+            names::machine(header.machine)
+        ));
+    };
+    let funcs = analysis.functions();
+    let (jobs, total) = disasm::jobs(&a.target, header.entry, &funcs);
+    if let args::DisasmTarget::Function(pattern) = &a.target {
+        if jobs.is_empty() {
+            return report(&format!(
+                "no recovered function name contains '{}'",
+                names::escape(pattern.as_bytes())
+            ));
+        }
+        if total > jobs.len() {
+            let _ = writeln!(
+                io::stderr(),
+                "unforge: {}: note: {total} functions match; showing the first {}",
+                a.path.display(),
+                jobs.len()
+            );
+        }
+    }
+    let by_start = disasm::name_index(&funcs);
+    let map = elf.memory_map();
+    let mut out = BufWriter::new(io::stdout().lock());
+    let mut printed = 0usize;
+    let mut unmapped = 0usize;
+    for (k, job) in jobs.iter().enumerate() {
+        let Some(bytes) = unforge_disasm::function_bytes_in(&map, &data, job.start, job.size)
+        else {
+            unmapped += 1;
+            let _ = writeln!(
+                io::stderr(),
+                "unforge: {}: warning: {:#x} is not backed by file bytes",
+                a.path.display(),
+                job.start
+            );
+            continue;
+        };
+        let insns = unforge_disasm::disassemble_function_bytes(
+            bytes, job.start, job.size, bitness, a.count,
+        );
+        let result = (if k > 0 { writeln!(out) } else { Ok(()) }).and_then(|()| {
+            disasm::print_function(&mut out, job, bytes, &insns, bitness, &by_start)
+        });
+        if let Err(e) = result {
+            return stdout_error(&e);
+        }
+        printed += 1;
+    }
+    if let Err(e) = out.flush() {
+        return stdout_error(&e);
+    }
+    if printed == 0 && unmapped > 0 {
+        ExitCode::from(EXIT_FAILURE)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// Print the file's diagnostics on stderr, before the listing:
