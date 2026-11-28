@@ -1,0 +1,316 @@
+# Builds function fingerprint databases (`unforge sig build`, format in
+# crates/unforge-sigs/src/db.rs) for naming the functions of stripped Rust
+# binaries with `unforge sig match` and Mekiki (sigs/README.md):
+#
+#   sig-std     one database per Rust release in sigs/toolchains.txt
+#               (std-<release>-<commit9>.db), built from the repository's own
+#               std-only programs, plus TOOLCHAINS.tsv (release -> full rustc
+#               commit -> database)
+#   sig-crates  one database per crate, version and rustc in sigs/crates.toml
+#               (<crate>-<version>-rustc<release>.db), built from the crate's
+#               own tests, examples and benches, all of them merged per rustc
+#               (crates-rustc<release>.db), plus CRATES.tsv
+#
+# SAFETY: building crates.io crates runs their build scripts and proc macros
+# (third-party code). That happens ONLY here, in the `crate-build` jobs,
+# never on a developer machine. Every job gets no secrets, a read-only token
+# (`permissions: contents: read`), and a checkout that does not keep the
+# token (`persist-credentials: false`); crates are built in $RUNNER_TEMP,
+# outside the checkout, with their own CARGO_HOME.
+#
+# Ordering and separation, so third-party code cannot tamper with the tool
+# that builds the databases:
+#   1. `tools` builds unforge from this checkout (our code and its locked
+#      dependencies only) and uploads the binary, with its sha256 as a job
+#      output, BEFORE any job that runs third-party code starts
+#      (`crate-build` needs `tools`).
+#   2. `crate-build` runs the third-party code. The unforge binary is never
+#      on that runner, and nothing built there is ever executed afterwards:
+#      the executables are uploaded as data.
+#   3. `crate-db` and `crate-collect` run on fresh runners that never run
+#      third-party code. They check the sha256 of the unforge binary, then
+#      only parse the untrusted executables with it (unforge never panics
+#      on any input and runs nothing).
+#   `std` compiles only our own std-only sources with official toolchains
+#   (plain rustc, no cargo, no crates.io code), so it uses unforge directly.
+# The names in a crate database come from code the crate's authors control:
+# treat them as hints, like any symbol. Treat the executables as untrusted:
+# analyze them, never execute them.
+#
+# Caching: none. A registry cache shared with `tools` (keyed by Cargo.lock)
+# would save about a minute, but needs actions/cache, which is not pinned in
+# this repository yet; build outputs of third-party code must never be
+# cached anywhere a later build of unforge could read them.
+
+name: sigs
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sundays 04:41 UTC (bench-corpus runs on Mondays).
+    - cron: "41 4 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sigs
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      releases: ${{ steps.spec.outputs.releases }}
+      crates: ${{ steps.spec.outputs.crates }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: spec
+        run: |
+          echo "releases=$(python3 -I sigs/scripts/spec.py toolchains sigs/toolchains.txt rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+          echo "crates=$(python3 -I sigs/scripts/spec.py crates sigs/crates.toml)" >> "$GITHUB_OUTPUT"
+
+  # unforge is our own code; it is built once, before any third-party code
+  # runs on a runner, and shared as an artifact checked by sha256.
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build unforge (toolchain from rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p unforge
+          mkdir -p "$RUNNER_TEMP/tools"
+          cp target/release/unforge "$RUNNER_TEMP/tools/unforge"
+      - id: hash
+        run: echo "sha256=$(sha256sum "$RUNNER_TEMP/tools/unforge" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sig-tools
+          path: ${{ runner.temp }}/tools/unforge
+          retention-days: 1
+
+  # std of one release. Only our own sources are compiled here.
+  std:
+    name: std ${{ matrix.release }}
+    needs: [prepare, tools]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # One release failing must not fail the run.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        release: ${{ fromJSON(needs.prepare.outputs.releases) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-tools
+          path: ${{ runner.temp }}/tools
+      - name: Check the unforge binary
+        env:
+          SHA256: ${{ needs.tools.outputs.sha256 }}
+        run: |
+          echo "$SHA256  $RUNNER_TEMP/tools/unforge" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/tools/unforge"
+      - name: Install Rust ${{ matrix.release }}
+        env:
+          RELEASE: ${{ matrix.release }}
+        run: |
+          cd "$RUNNER_TEMP"
+          rustup toolchain install "$RELEASE" --profile minimal \
+              --target x86_64-unknown-linux-musl --target i686-unknown-linux-musl
+          rustc "+$RELEASE" -vV
+      - name: Build std-${{ matrix.release }}.db
+        env:
+          RELEASE: ${{ matrix.release }}
+        run: |
+          bash sigs/scripts/build-std.sh "$RELEASE" "$RUNNER_TEMP/out" "$RUNNER_TEMP/tools/unforge"
+          ls -la "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: std-db-${{ matrix.release }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: warn
+          retention-days: 1
+
+  std-collect:
+    needs: [tools, std]
+    if: always() && needs.tools.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: std-db-*
+          merge-multiple: true
+          path: sig-std
+      - name: Index
+        run: |
+          python3 -I sigs/scripts/summary.py std sig-std | tee -a "$GITHUB_STEP_SUMMARY"
+          cat sig-std/FAILED-std-*.txt 2> /dev/null || true
+          cp sigs/toolchains.txt sig-std/toolchains.txt
+          git rev-parse HEAD > sig-std/UNFORGE_COMMIT
+          (cd sig-std && sha256sum -- *.db > SHA256SUMS) || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sig-std
+          path: sig-std
+          retention-days: 30
+          compression-level: 6
+
+  # Third-party code runs here, and only here. The unforge binary is not
+  # downloaded to this runner; `needs: tools` only orders the jobs.
+  crate-build:
+    name: build ${{ matrix.crate.id }}
+    needs: [prepare, tools]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    # One crate failing (or timing out) must not fail the run.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        crate: ${{ fromJSON(needs.prepare.outputs.crates) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust ${{ matrix.crate.rustc }}
+        env:
+          RELEASE: ${{ matrix.crate.rustc }}
+        run: |
+          cd "$RUNNER_TEMP"
+          rustup toolchain install "$RELEASE" --profile minimal
+      - name: Build ${{ matrix.crate.name }} ${{ matrix.crate.version }} tests and examples (third-party build scripts run here)
+        env:
+          CRATE: ${{ matrix.crate.name }}
+          VERSION: ${{ matrix.crate.version }}
+          RELEASE: ${{ matrix.crate.rustc }}
+        run: |
+          bash sigs/scripts/build-crate.sh "$CRATE" "$VERSION" "$RELEASE" "$RUNNER_TEMP/out"
+          cat "$RUNNER_TEMP/out/status.json"
+          du -sh "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: crate-bins-${{ matrix.crate.id }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: warn
+          retention-days: 1
+          compression-level: 6
+
+  # A fresh runner: no third-party code has run here. The executables are
+  # only parsed.
+  crate-db:
+    name: db ${{ matrix.crate.id }}
+    needs: [prepare, tools, crate-build]
+    if: always() && needs.prepare.result == 'success' && needs.tools.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        crate: ${{ fromJSON(needs.prepare.outputs.crates) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-tools
+          path: ${{ runner.temp }}/tools
+      - name: Check the unforge binary
+        env:
+          SHA256: ${{ needs.tools.outputs.sha256 }}
+        run: |
+          echo "$SHA256  $RUNNER_TEMP/tools/unforge" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/tools/unforge"
+      # Missing when the build job crashed or timed out; crate-db.sh then
+      # records that.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: crate-bins-${{ matrix.crate.id }}
+          path: ${{ runner.temp }}/in
+      - name: Build ${{ matrix.crate.id }}.db
+        env:
+          CRATE: ${{ matrix.crate.name }}
+          VERSION: ${{ matrix.crate.version }}
+          RELEASE: ${{ matrix.crate.rustc }}
+        run: |
+          bash sigs/scripts/crate-db.sh "$RUNNER_TEMP/tools/unforge" "$RUNNER_TEMP/in" \
+              "$RUNNER_TEMP/out" "$CRATE" "$VERSION" "$RELEASE"
+          ls -la "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: crate-db-${{ matrix.crate.id }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: warn
+          retention-days: 1
+
+  crate-collect:
+    needs: [tools, crate-db]
+    if: always() && needs.tools.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-tools
+          path: ${{ runner.temp }}/tools
+      - name: Check the unforge binary
+        env:
+          SHA256: ${{ needs.tools.outputs.sha256 }}
+        run: |
+          echo "$SHA256  $RUNNER_TEMP/tools/unforge" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/tools/unforge"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: crate-db-*
+          merge-multiple: true
+          path: sig-crates
+      - name: Merge per rustc and index
+        run: |
+          for r in $(python3 -I -c 'import json, sys; print(" ".join(sorted({c["rustc"] for c in json.load(sys.stdin)})))' \
+                  < <(python3 -I sigs/scripts/spec.py crates sigs/crates.toml)); do
+              dbs=(sig-crates/*-rustc"$r".db)
+              [[ -e "${dbs[0]}" ]] || continue
+              "$RUNNER_TEMP/tools/unforge" sig build -o "sig-crates/crates-rustc$r.db" -- "${dbs[@]}"
+          done
+          python3 -I sigs/scripts/summary.py crates sig-crates | tee -a "$GITHUB_STEP_SUMMARY"
+          cp sigs/crates.toml sig-crates/crates.toml
+          git rev-parse HEAD > sig-crates/UNFORGE_COMMIT
+          (cd sig-crates && sha256sum -- *.db > SHA256SUMS) || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sig-crates
+          path: sig-crates
+          retention-days: 30
+          compression-level: 6
