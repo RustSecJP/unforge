@@ -8,6 +8,8 @@
 //   - casts:        `x as i32`
 //   - control flow: `if c {`, `while c {`, `loop { ..; if !(c) { break; } }`, `loop {`
 //   - bitwise not:  `!x`
+//   - counting loops: `i = start; loop { ..; i = i + 1; if !(i != n) break }`
+//                   (and Ghidra's for-loops) become `for i in start..n { .. }`
 //   - slices:       a (pointer, length) parameter pair that is indexed and
 //                   bounds-checked becomes `v: &[T]`, `v[i]`, `v.len()`; a byte
 //                   slice compared with characters becomes `s: &str`, `s.as_bytes()[i]`
@@ -48,6 +50,19 @@ class PrintRust : public PrintC {
   };
   vector<SliceParam> slices;
   map<const PcodeOp *, SliceLoad> sliceLoads;
+  /// Statements not to print (the `i = i + 1` of a loop shown as `for`).
+  set<const PcodeOp *> suppressed;
+  /// A counting loop: `for var in start..bound`.
+  struct RangeLoop {
+    const Varnode *var;     ///< the loop variable (phi output)
+    const Varnode *start;   ///< its value on entry
+    const Varnode *bound;   ///< exclusive upper bound
+    const PcodeOp *step;    ///< the `var = var + 1` statement
+    const PcodeOp *copy;    ///< `var = tmp` after `tmp = var + 1`, or null
+    const PcodeOp *cond;    ///< the branch (context for printing)
+  };
+  bool findRangeLoop(const FlowBlock *loop, const PcodeOp *cbranch, bool topTest, RangeLoop &out);
+  void emitRangeHeader(const RangeLoop &r);
   void findSlices(const Funcdata *fd);
   const SliceParam *sliceOfPtr(const Symbol *sym) const;
   const SliceParam *sliceOfLen(const Symbol *sym) const;
@@ -67,6 +82,7 @@ public:
   virtual void emitBlockDoWhile(const BlockDoWhile *bl);
   virtual void emitBlockInfLoop(const BlockInfLoop *bl);
   virtual void docFunction(const Funcdata *fd);
+  virtual void emitBlockBasic(const BlockBasic *bb);
   virtual void opLoad(const PcodeOp *op);
   virtual void pushSymbol(const Symbol *sym, const Varnode *vn, const PcodeOp *op);
 };

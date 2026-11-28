@@ -444,6 +444,20 @@ void PrintRust::emitBlockWhileDo(const BlockWhileDo *bl) {
     popMod();
     emit->spaces(1);
     emitGotoStatement(condBlock, (const FlowBlock *)0, FlowBlock::f_break_goto);
+  } else if (RangeLoop range; findRangeLoop(bl, condBlock->lastOp(), true, range)) {
+    emitCommentBlockTree(condBlock);
+    emitRangeHeader(range);
+    indent = emit->openBraceIndent(OPEN_CURLY, option_brace_loop);
+    suppressed.insert(range.step);
+    if (range.copy != (const PcodeOp *)0) suppressed.insert(range.copy);
+    setMod(no_branch);
+    int4 id2 = emit->beginBlock(bl->getBlock(1));
+    bl->getBlock(1)->emit(this);
+    emit->endBlock(id2);
+    suppressed.clear();
+    emit->closeBraceIndent(CLOSE_CURLY, indent);
+    popMod();
+    return;
   } else {
     emitCommentBlockTree(condBlock);
     if (stepOp != (PcodeOp *)0 && initOp != (PcodeOp *)0) {
@@ -477,9 +491,229 @@ void PrintRust::emitBlockWhileDo(const BlockWhileDo *bl) {
   popMod();
 }
 
+// ---- counting loops --------------------------------------------------------
+
+// Recognizes `var' = var + 1` compared with a bound, where `var` is the phi
+// (MULTIEQUAL) of the loop head merging an entry value and `var'`:
+//   bottom test (do-while): continue while `var' != bound` or `var' < bound`
+//   top test (while-do):    continue while `var != bound`  or `var < bound`
+// and nothing else writes the loop variable.
+// The basic blocks under a structured block. Ops belong to basic blocks
+// (BlockBasic); the structured tree refers to them through BlockCopy.
+static void basicBlocks(const FlowBlock *b, set<const FlowBlock *> &out) {
+  if (b == (const FlowBlock *)0) return;
+  if (b->getType() == FlowBlock::t_copy) {
+    out.insert(b->subBlock(0));
+    return;
+  }
+  if (b->getType() == FlowBlock::t_basic) {
+    out.insert(b);
+    return;
+  }
+  const BlockGraph *g = dynamic_cast<const BlockGraph *>(b);
+  if (g == (const BlockGraph *)0) return;
+  for (int4 i = 0; i < g->getSize(); ++i) basicBlocks(g->subBlock(i), out);
+}
+
+static thread_local set<const FlowBlock *> loopBlocks;
+
+static bool inside(const PcodeOp *op, const FlowBlock *) {
+  return loopBlocks.count(op->getParent()) != 0;
+}
+
+// `out = in + 1`
+static bool isIncrement(const PcodeOp *op, const Varnode *in) {
+  return op != (const PcodeOp *)0 && op->code() == CPUI_INT_ADD && op->getIn(0) == in && op->getIn(1)->isConstant() &&
+         op->getIn(1)->getOffset() == 1;
+}
+
+bool PrintRust::findRangeLoop(const FlowBlock *loop, const PcodeOp *cbranch, bool topTest, RangeLoop &out) {
+  if (cbranch == (const PcodeOp *)0 || cbranch->code() != CPUI_CBRANCH) return false;
+  loopBlocks.clear();
+  basicBlocks(loop, loopBlocks);
+  const Varnode *b = cbranch->getIn(1);
+  if (!b->isWritten()) return false;
+  const PcodeOp *cmp = b->getDef();
+  OpCode c = cmp->code();
+  bool flip = cbranch->isBooleanFlip();
+  // the printed condition is the "keep looping" condition
+  bool ne = (c == CPUI_INT_NOTEQUAL && !flip) || (c == CPUI_INT_EQUAL && flip);
+  bool lt = (c == CPUI_INT_LESS || c == CPUI_INT_SLESS) && !flip;
+  if (!ne && !lt) return false;
+  for (int4 side = 0; side < 2; ++side) {
+    if (lt && side == 1) break;  // `i < bound`: the counter is the left operand
+    const Varnode *counted = cmp->getIn(side);
+    const Varnode *bound = cmp->getIn(1 - side);
+    // the phi of the loop head, the increment, and an optional copy back
+    const Varnode *phiOut = (const Varnode *)0;
+    const PcodeOp *step = (const PcodeOp *)0, *copy = (const PcodeOp *)0;
+    if (topTest) {
+      phiOut = counted;  // tested before the step
+    } else if (counted->isWritten()) {
+      step = counted->getDef();
+      if (step->code() != CPUI_INT_ADD) continue;
+      phiOut = step->getIn(0);
+    }
+    if (phiOut == (const Varnode *)0 || !phiOut->isWritten() || phiOut->getDef()->code() != CPUI_MULTIEQUAL) continue;
+    const PcodeOp *phi = phiOut->getDef();
+    if (phi->numInput() < 2 || !inside(phi, loop)) continue;
+    const Varnode *start = (const Varnode *)0;
+    int4 entries = 0;
+    bool entriesShareVar = true;
+    for (int4 k = 0; k < phi->numInput(); ++k) {
+      const Varnode *in = phi->getIn(k);
+      const PcodeOp *d = in->isWritten() ? in->getDef() : (const PcodeOp *)0;
+      if (d != (const PcodeOp *)0 && d->code() == CPUI_COPY && d->getIn(0)->isWritten() && inside(d, loop) &&
+          isIncrement(d->getIn(0)->getDef(), phiOut) && (step == (const PcodeOp *)0 || step == d->getIn(0)->getDef())) {
+        copy = d;
+        step = d->getIn(0)->getDef();
+      } else if (isIncrement(d, phiOut) && (step == (const PcodeOp *)0 || step == d)) {
+        step = d;
+      } else {
+        start = in;
+        ++entries;
+        try {
+          if (in->getHigh() != phiOut->getHigh()) entriesShareVar = false;
+        } catch (LowlevelError &) {
+          entriesShareVar = false;
+        }
+      }
+    }
+    // Several ways into the loop: fine when they all carry the loop
+    // variable itself (`for i in i..n`).
+    if (entries > 1) {
+      if (!entriesShareVar) continue;
+      start = phiOut;
+    }
+    if (start == (const Varnode *)0 || step == (const PcodeOp *)0 || !isIncrement(step, phiOut)) continue;
+    // with a copy back, the temporary may feed only the copy and the test
+    if (copy != (const PcodeOp *)0) {
+      const Varnode *tmp = step->getOut();
+      bool only = true;
+      for (list<PcodeOp *>::const_iterator d = tmp->beginDescend(); d != tmp->endDescend(); ++d)
+        if (*d != copy && *d != cmp) only = false;
+      if (!only) continue;
+    }
+    // inside the loop, nothing else may write the loop variable
+    HighVariable *h;
+    try {
+      h = phiOut->getHigh();
+    } catch (LowlevelError &) {
+      continue;
+    }
+    bool clean = true;
+    for (int4 k = 0; k < h->numInstances(); ++k) {
+      const Varnode *v = h->getInstance(k);
+      if (!v->isWritten()) continue;
+      const PcodeOp *d = v->getDef();
+      if (d == phi || d == step || d == copy || !inside(d, loop)) continue;
+      clean = false;
+    }
+    if (!clean) continue;
+    out = RangeLoop{phiOut, start, bound, step, copy, cbranch};
+    return true;
+  }
+  return false;
+}
+
+// `for var in start..bound {`
+void PrintRust::emitRangeHeader(const RangeLoop &r) {
+  emit->tagLine();
+  emit->tagOp(KEYWORD_FOR, EmitMarkup::keyword_color, r.cond);
+  emit->spaces(1);
+  pushVn(r.var, r.cond, mods);
+  recurse();
+  emit->print(" in ", EmitMarkup::keyword_color);
+  // the entry value is printed as an expression (a constant or a variable);
+  // a copy into the loop variable itself is shown as its source
+  const Varnode *start = r.start;
+  if (start->isWritten() && start->getDef()->code() == CPUI_COPY) start = start->getDef()->getIn(0);
+  pushVn(start, r.cond, mods);
+  recurse();
+  emit->print("..");
+  pushVn(r.bound, r.cond, mods);
+  recurse();
+}
+
+// PrintC::emitBlockBasic, skipping `suppressed` statements.
+void PrintRust::emitBlockBasic(const BlockBasic *bb) {
+  const PcodeOp *inst;
+  bool separator;
+  commsorter.setupBlockList(bb);
+  emitLabelStatement(bb);
+  if (isSet(only_branch)) {
+    inst = bb->lastOp();
+    if (inst->isBranch()) emitExpression(inst);
+    return;
+  }
+  separator = false;
+  list<PcodeOp *>::const_iterator iter;
+  for (iter = bb->beginOp(); iter != bb->endOp(); ++iter) {
+    inst = *iter;
+    if (inst->notPrinted()) continue;
+    if (suppressed.count(inst) != 0) continue;
+    if (inst->isBranch()) {
+      if (isSet(no_branch)) continue;
+      if (inst->code() == CPUI_BRANCH) continue;
+    }
+    const Varnode *vn = inst->getOut();
+    if ((vn != (const Varnode *)0) && (vn->isImplied())) continue;
+    if (separator) {
+      if (isSet(comma_separate)) {
+        emit->print(COMMA);
+        emit->spaces(1);
+      } else {
+        emitCommentGroup(inst);
+        emit->tagLine();
+      }
+    } else if (!isSet(comma_separate)) {
+      emitCommentGroup(inst);
+      emit->tagLine();
+    }
+    emitStatement(inst);
+    separator = true;
+  }
+  if (isSet(flat) && isSet(nofallthru)) {
+    inst = bb->lastOp();
+    emit->tagLine();
+    int4 id = emit->beginStatement(inst);
+    emit->print(KEYWORD_GOTO, EmitMarkup::keyword_color);
+    emit->spaces(1);
+    if (bb->sizeOut() == 2) {
+      if (inst->isFallthruTrue())
+        emitLabel(bb->getOut(1));
+      else
+        emitLabel(bb->getOut(0));
+    } else
+      emitLabel(bb->getOut(0));
+    emit->print(SEMICOLON);
+    emit->endStatement(id);
+  }
+}
+
 // C `do { body } while (cond);` becomes `loop { body; if !(cond) { break; } }`.
 void PrintRust::emitBlockDoWhile(const BlockDoWhile *bl) {
   const PcodeOp *op;
+  RangeLoop range;
+  if (findRangeLoop(bl, bl->getBlock(0)->lastOp(), false, range)) {
+    pushMod();
+    unsetMod(no_branch | only_branch);
+    emitAnyLabelStatement(bl);
+    emitRangeHeader(range);
+    int4 id = emit->openBraceIndent(OPEN_CURLY, option_brace_loop);
+    suppressed.insert(range.step);
+    if (range.copy != (const PcodeOp *)0) suppressed.insert(range.copy);
+    pushMod();
+    int4 id2 = emit->beginBlock(bl->getBlock(0));
+    setMod(no_branch);
+    bl->getBlock(0)->emit(this);
+    emit->endBlock(id2);
+    popMod();
+    suppressed.clear();
+    emit->closeBraceIndent(CLOSE_CURLY, id);
+    popMod();
+    return;
+  }
   pushMod();
   unsetMod(no_branch | only_branch);
   emitAnyLabelStatement(bl);
