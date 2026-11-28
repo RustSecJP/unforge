@@ -7,6 +7,8 @@
 //! unforge --version | -V
 //! unforge elf [--header] [--segments] [--sections] [--symbols]
 //!             [--strict] [--loader-checks] [--] <file>
+//! unforge disasm [--function <name-substring> | --addr <hex>] [--count <n>]
+//!                [--] <file>
 //! ```
 
 use std::ffi::OsString;
@@ -44,11 +46,37 @@ pub struct ElfArgs {
     pub loader_checks: bool,
 }
 
+/// Where `unforge disasm` starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisasmTarget {
+    /// The entry point (`e_entry`).
+    Entry,
+    /// Every recovered function whose name contains this text.
+    Function(String),
+    /// This virtual address.
+    Addr(u64),
+}
+
+/// Instructions printed per function when `--count` is not given.
+pub const DEFAULT_COUNT: usize = 1000;
+
+/// Largest `--count` accepted.
+pub const MAX_COUNT: usize = 1 << 20;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisasmArgs {
+    pub path: PathBuf,
+    pub target: DisasmTarget,
+    /// At most this many instructions per function.
+    pub count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Help,
     Version,
     Elf(ElfArgs),
+    Disasm(DisasmArgs),
 }
 
 /// A problem with the command line itself (exit code 2).
@@ -60,6 +88,7 @@ unforge - read Rust binaries as Rust
 
 Usage:
   unforge elf [OPTIONS] <FILE>    Print the ELF structure of FILE
+  unforge disasm [OPTIONS] <FILE> Disassemble x86 / x86-64 code in FILE
   unforge --help                  Print this help
   unforge --version               Print the version
 
@@ -73,13 +102,26 @@ Options for `elf` (default: all parts):
                        with the file (for the machine in its header)
   -h, --help           Print this help
 
+Options for `disasm` (default: the entry point):
+      --function <TEXT>  Every recovered function whose name contains TEXT
+                         (at most 64 functions)
+      --addr <HEX>       The code at this virtual address (0x prefix optional)
+      --count <N>        At most N instructions per function (default 1000)
+
+`disasm` prints one instruction per line: address, bytes, Intel syntax.
+Branches, calls and RIP-relative references to a recovered function end in
+`; -> name`. A function of unknown size is disassembled up to its first
+return, at most 4096 bytes.
+
 The file is read tolerantly: everything readable is printed, and anomalies
 (including every value the reader had to infer) are reported on stderr as
 warnings and notes.
 
 Exit status: 0 on success (also with warnings, unless --strict), 1 if the
 file could not be read or has no readable ELF header, or with --strict if a
-warning was reported, 2 on a command-line error.
+warning was reported, or for `disasm` if the file is not for x86 / x86-64,
+no function name matches, or no requested address is backed by file bytes,
+2 on a command-line error.
 ";
 
 /// Parse the arguments after the program name.
@@ -95,6 +137,7 @@ where
         Some("--help" | "-h" | "help") => Ok(Command::Help),
         Some("--version" | "-V") => Ok(Command::Version),
         Some("elf") => parse_elf(args),
+        Some("disasm") => parse_disasm(args),
         _ => Err(UsageError(format!(
             "unknown command '{}'",
             first.to_string_lossy()
@@ -149,6 +192,110 @@ fn parse_elf(args: impl Iterator<Item = OsString>) -> Result<Command, UsageError
         show: if show.any() { show } else { Show::ALL },
         strict,
         loader_checks,
+    }))
+}
+
+fn parse_hex(s: &str) -> Option<u64> {
+    let digits = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    if digits.is_empty() || digits.starts_with('+') {
+        return None;
+    }
+    u64::from_str_radix(digits, 16).ok()
+}
+
+/// The value after an option such as `--count`.
+fn value(args: &mut impl Iterator<Item = OsString>, opt: &str) -> Result<OsString, UsageError> {
+    args.next()
+        .ok_or_else(|| UsageError(format!("missing value for '{opt}'")))
+}
+
+fn parse_disasm(mut args: impl Iterator<Item = OsString>) -> Result<Command, UsageError> {
+    let mut function: Option<String> = None;
+    let mut addr: Option<u64> = None;
+    let mut count: Option<usize> = None;
+    let mut path: Option<OsString> = None;
+    let mut only_positional = false;
+
+    while let Some(arg) = args.next() {
+        let is_option = !only_positional
+            && arg.as_encoded_bytes().starts_with(b"-")
+            && arg.as_encoded_bytes() != b"-";
+        if !is_option {
+            if path.is_some() {
+                return Err(UsageError(format!(
+                    "unexpected extra argument '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+            path = Some(arg);
+            continue;
+        }
+        match arg.to_str() {
+            Some("--") => only_positional = true,
+            Some("--help" | "-h") => return Ok(Command::Help),
+            Some(opt @ "--function") => {
+                let v = value(&mut args, opt)?;
+                let Some(v) = v.to_str().filter(|v| !v.is_empty()) else {
+                    return Err(UsageError(format!(
+                        "invalid name for '--function': '{}'",
+                        v.to_string_lossy()
+                    )));
+                };
+                function = Some(v.to_owned());
+            }
+            Some(opt @ "--addr") => {
+                let v = value(&mut args, opt)?;
+                let Some(a) = v.to_str().and_then(parse_hex) else {
+                    return Err(UsageError(format!(
+                        "invalid hex address for '--addr': '{}'",
+                        v.to_string_lossy()
+                    )));
+                };
+                addr = Some(a);
+            }
+            Some(opt @ "--count") => {
+                let v = value(&mut args, opt)?;
+                let n = v
+                    .to_str()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .filter(|n| (1..=MAX_COUNT).contains(n));
+                let Some(n) = n else {
+                    return Err(UsageError(format!(
+                        "invalid count for '--count': '{}' (1 to {MAX_COUNT})",
+                        v.to_string_lossy()
+                    )));
+                };
+                count = Some(n);
+            }
+            _ => {
+                return Err(UsageError(format!(
+                    "unknown option '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+        }
+    }
+
+    let target = match (function, addr) {
+        (Some(_), Some(_)) => {
+            return Err(UsageError(
+                "'--function' and '--addr' cannot be used together".into(),
+            ));
+        }
+        (Some(f), None) => DisasmTarget::Function(f),
+        (None, Some(a)) => DisasmTarget::Addr(a),
+        (None, None) => DisasmTarget::Entry,
+    };
+    let Some(path) = path else {
+        return Err(UsageError("missing <FILE> for 'disasm'".into()));
+    };
+    Ok(Command::Disasm(DisasmArgs {
+        path: path.into(),
+        target,
+        count: count.unwrap_or(DEFAULT_COUNT),
     }))
 }
 
@@ -219,5 +366,57 @@ mod tests {
     fn help_anywhere() {
         assert_eq!(p(&["--help"]), Ok(Command::Help));
         assert_eq!(p(&["elf", "x", "-h"]), Ok(Command::Help));
+        assert_eq!(p(&["disasm", "x", "--help"]), Ok(Command::Help));
+    }
+
+    #[test]
+    fn disasm_defaults_to_entry() {
+        assert_eq!(
+            p(&["disasm", "a.out"]),
+            Ok(Command::Disasm(DisasmArgs {
+                path: "a.out".into(),
+                target: DisasmTarget::Entry,
+                count: DEFAULT_COUNT,
+            }))
+        );
+    }
+
+    #[test]
+    fn disasm_function_addr_and_count() {
+        let Ok(Command::Disasm(a)) = p(&["disasm", "--function", "main", "x", "--count", "5"])
+        else {
+            panic!("expected disasm command");
+        };
+        assert_eq!(a.target, DisasmTarget::Function("main".into()));
+        assert_eq!(a.count, 5);
+        for (text, want) in [("401000", 0x401000), ("0x401000", 0x401000), ("0XfF", 0xff)] {
+            let Ok(Command::Disasm(a)) = p(&["disasm", "--addr", text, "x"]) else {
+                panic!("expected disasm command");
+            };
+            assert_eq!(a.target, DisasmTarget::Addr(want));
+        }
+        // A value may start with a dash.
+        let Ok(Command::Disasm(a)) = p(&["disasm", "--function", "-x", "--", "-f"]) else {
+            panic!("expected disasm command");
+        };
+        assert_eq!(a.target, DisasmTarget::Function("-x".into()));
+        assert_eq!(a.path, PathBuf::from("-f"));
+    }
+
+    #[test]
+    fn disasm_usage_errors() {
+        assert!(p(&["disasm"]).is_err());
+        assert!(p(&["disasm", "--function"]).is_err());
+        assert!(p(&["disasm", "--function", "", "x"]).is_err());
+        assert!(p(&["disasm", "--addr", "xyz", "x"]).is_err());
+        assert!(p(&["disasm", "--addr", "0x", "x"]).is_err());
+        assert!(p(&["disasm", "--addr", "+1", "x"]).is_err());
+        assert!(p(&["disasm", "--addr", "10000000000000000", "x"]).is_err());
+        assert!(p(&["disasm", "--count", "0", "x"]).is_err());
+        assert!(p(&["disasm", "--count", "-1", "x"]).is_err());
+        assert!(p(&["disasm", "--count", "99999999999", "x"]).is_err());
+        assert!(p(&["disasm", "--function", "a", "--addr", "1", "x"]).is_err());
+        assert!(p(&["disasm", "--header", "x"]).is_err());
+        assert!(p(&["disasm", "a", "b"]).is_err());
     }
 }
