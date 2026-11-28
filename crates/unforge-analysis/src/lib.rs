@@ -1,6 +1,7 @@
 //! What unforge recovers from a Rust binary, as stable output types.
 //!
-//! [`Analysis`] runs on an ELF file (usually a stripped one) and answers two
+//! [`Analysis`] runs on an ELF file or a Windows PE image (usually a
+//! stripped one; see [`image::Image`]) and answers two
 //! questions a malware analyst asks first:
 //!
 //! - [`Analysis::functions`]: where are the functions, what are they called
@@ -17,11 +18,18 @@
 //! # Baseline (v0)
 //!
 //! No code is disassembled yet:
-//! - functions come from the symbols that remain (`.symtab`, `.dynsym`, the
-//!   dynamic symbol table found through `PT_DYNAMIC`) plus the entry point;
+//! - functions of an ELF file come from the symbols that remain (`.symtab`,
+//!   `.dynsym`, the dynamic symbol table found through `PT_DYNAMIC`) plus
+//!   the entry point;
+//! - functions of a PE image come from the x64 exception table (`.pdata`:
+//!   start and size of every function with unwind data, which survives
+//!   stripping because Windows needs it to unwind), the COFF symbols
+//!   (MinGW images that were not stripped), the exports, the entry point
+//!   and the TLS callbacks. Names of MSVC-built images are in the PDB,
+//!   which is not read;
 //! - dependencies come from source paths in the loaded bytes
 //!   (`.../registry/src/<index>/<crate>-<version>/...` and
-//!   `/rustc/<commit>/...`, see [`paths`]).
+//!   `/rustc/<commit>/...`, with `/` or `\` as separator, see [`paths`]).
 //!
 //! # Bounds
 //!
@@ -40,13 +48,17 @@
     )
 )]
 
+pub mod image;
 pub mod names;
 pub mod paths;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use unforge_elf::consts::{ET_DYN, ET_EXEC, PT_LOAD, STT_FUNC};
+use unforge_elf::consts::{ET_DYN, ET_EXEC, STT_FUNC};
 use unforge_elf::{ElfFile, Symbol, SymbolSection};
+use unforge_pe::PeFile;
+
+pub use image::{Cpu, Format, Image, ImageError};
 
 /// Version of the output types. Bumped whenever [`FunctionGuess`],
 /// [`Group`] or [`DependencyGuess`] change meaning.
@@ -132,109 +144,74 @@ pub struct DependencyGuess {
 pub enum Error {
     /// The input is not an ELF file `unforge-elf` can read at all.
     Elf(unforge_elf::Error),
+    /// The input starts like a PE image (`MZ`) but `unforge-pe` cannot
+    /// find its headers.
+    Pe(unforge_pe::Error),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Elf(e) => write!(f, "{e}"),
+            Error::Pe(e) => write!(f, "{e}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
-/// An analysis of one ELF file.
+impl From<ImageError> for Error {
+    fn from(e: ImageError) -> Self {
+        match e {
+            ImageError::Elf(e) => Error::Elf(e),
+            ImageError::Pe(e) => Error::Pe(e),
+        }
+    }
+}
+
+/// An analysis of one ELF file or PE image.
 pub struct Analysis<'data> {
-    file: ElfFile<'data>,
+    image: Image<'data>,
 }
 
 impl<'data> Analysis<'data> {
-    /// Parses `data`. Fails only when not even an ELF header can be read.
+    /// Parses `data`: a PE image when it starts with `MZ`, else an ELF
+    /// file. Fails only when not even the headers can be read.
     pub fn new(data: &'data [u8]) -> Result<Self, Error> {
-        let file = ElfFile::parse(data).map_err(Error::Elf)?;
-        Ok(Analysis { file })
+        Ok(Analysis {
+            image: Image::parse(data)?,
+        })
     }
 
-    pub fn elf(&self) -> &ElfFile<'data> {
-        &self.file
+    /// The image: memory map and format-independent questions.
+    pub fn image(&self) -> &Image<'data> {
+        &self.image
+    }
+
+    /// The ELF reader, when the file is an ELF file.
+    pub fn elf(&self) -> Option<&ElfFile<'data>> {
+        self.image.elf()
+    }
+
+    /// The PE reader, when the file is a PE image.
+    pub fn pe(&self) -> Option<&PeFile<'data>> {
+        self.image.pe()
     }
 
     /// Recovered functions, sorted by start address, one per address.
     pub fn functions(&self) -> Vec<FunctionGuess> {
-        let mut by_start: BTreeMap<u64, FunctionGuess> = BTreeMap::new();
-        let mut add = |sym: &Symbol, name: Option<&[u8]>| {
-            if by_start.len() >= MAX_FUNCTIONS {
-                return;
-            }
-            if !is_function(sym) {
-                return;
-            }
-            let name = name
-                .and_then(|n| std::str::from_utf8(n).ok())
-                .filter(|n| !n.is_empty());
-            let guess = FunctionGuess {
-                start: sym.value,
-                size: sym.size,
-                name: name.map(|n| names::demangle_rust(n).unwrap_or_else(|| n.to_owned())),
-                group: None,
-            };
-            let e = by_start.entry(sym.value).or_insert_with(|| guess.clone());
-            if e.name.is_none() {
-                e.name = guess.name;
-            }
-            if e.size == 0 {
-                e.size = guess.size;
-            }
-        };
-
-        if let Ok(tables) = self.file.symbol_tables() {
-            for table in tables {
-                for sym in table.iter() {
-                    let name = table
-                        .name_bounded(&sym, MAX_NAME_LEN)
-                        .ok()
-                        .filter(|n| !n.truncated)
-                        .map(|n| n.bytes);
-                    add(&sym, name);
-                }
-            }
+        match (self.image.elf(), self.image.pe()) {
+            (Some(elf), _) => elf_functions(elf),
+            (_, Some(pe)) => pe_functions(pe),
+            _ => Vec::new(),
         }
-        if let Ok(dynsyms) = self.file.dynamic_symbols() {
-            for i in 0..dynsyms.len() {
-                let Some(sym) = dynsyms.get(i) else { break };
-                let name = dynsyms
-                    .name_bounded(&sym, MAX_NAME_LEN)
-                    .ok()
-                    .filter(|n| !n.truncated)
-                    .map(|n| n.bytes);
-                add(&sym, name);
-            }
-        }
-
-        let header = self.file.header();
-        if matches!(header.e_type, ET_EXEC | ET_DYN)
-            && header.entry != 0
-            && by_start.len() < MAX_FUNCTIONS
-        {
-            by_start.entry(header.entry).or_insert(FunctionGuess {
-                start: header.entry,
-                size: 0,
-                name: None,
-                group: None,
-            });
-        }
-
-        let mut out: Vec<FunctionGuess> = by_start.into_values().collect();
-        assign_groups(&mut out);
-        out
     }
 
     /// Recovered dependencies, sorted, without duplicates.
     pub fn dependencies(&self) -> Vec<DependencyGuess> {
         let mut found: BTreeSet<DependencyGuess> = BTreeSet::new();
-        for (start, end) in self.loaded_file_ranges() {
-            let Some(bytes) = self.file.data().get(start..end) else {
+        for (start, end) in self.image.loaded_file_ranges() {
+            let Some(bytes) = self.image.data().get(start..end) else {
                 continue;
             };
             paths::scan_path_clues(bytes, |clue| {
@@ -256,36 +233,176 @@ impl<'data> Analysis<'data> {
         }
         found.into_iter().collect()
     }
+}
 
-    /// The file ranges of `PT_LOAD` segments, merged (so overlapping
-    /// segments are scanned once). The whole file when there is none.
-    fn loaded_file_ranges(&self) -> Vec<(usize, usize)> {
-        let len = self.file.data().len();
-        let mut ranges: Vec<(usize, usize)> = Vec::new();
-        if let Ok(phdrs) = self.file.program_headers() {
-            for ph in phdrs.iter().filter(|p| p.p_type == PT_LOAD) {
-                let s = usize::try_from(ph.offset).unwrap_or(usize::MAX).min(len);
-                let e = usize::try_from(ph.offset.saturating_add(ph.filesz))
-                    .unwrap_or(usize::MAX)
-                    .min(len);
-                if s < e {
-                    ranges.push((s, e));
-                }
+/// Functions of an ELF file: symbols, dynamic symbols, the entry point.
+fn elf_functions(file: &ElfFile<'_>) -> Vec<FunctionGuess> {
+    let mut by_start: BTreeMap<u64, FunctionGuess> = BTreeMap::new();
+    let mut add = |sym: &Symbol, name: Option<&[u8]>| {
+        if by_start.len() >= MAX_FUNCTIONS {
+            return;
+        }
+        if !is_function(sym) {
+            return;
+        }
+        let name = name
+            .and_then(|n| std::str::from_utf8(n).ok())
+            .filter(|n| !n.is_empty());
+        let guess = FunctionGuess {
+            start: sym.value,
+            size: sym.size,
+            name: name.map(|n| names::demangle_rust(n).unwrap_or_else(|| n.to_owned())),
+            group: None,
+        };
+        let e = by_start.entry(sym.value).or_insert_with(|| guess.clone());
+        if e.name.is_none() {
+            e.name = guess.name;
+        }
+        if e.size == 0 {
+            e.size = guess.size;
+        }
+    };
+
+    if let Ok(tables) = file.symbol_tables() {
+        for table in tables {
+            for sym in table.iter() {
+                let name = table
+                    .name_bounded(&sym, MAX_NAME_LEN)
+                    .ok()
+                    .filter(|n| !n.truncated)
+                    .map(|n| n.bytes);
+                add(&sym, name);
             }
         }
-        if ranges.is_empty() {
-            return vec![(0, len)];
-        }
-        ranges.sort_unstable();
-        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
-        for (s, e) in ranges {
-            match merged.last_mut() {
-                Some(last) if s <= last.1 => last.1 = last.1.max(e),
-                _ => merged.push((s, e)),
-            }
-        }
-        merged
     }
+    if let Ok(dynsyms) = file.dynamic_symbols() {
+        for i in 0..dynsyms.len() {
+            let Some(sym) = dynsyms.get(i) else { break };
+            let name = dynsyms
+                .name_bounded(&sym, MAX_NAME_LEN)
+                .ok()
+                .filter(|n| !n.truncated)
+                .map(|n| n.bytes);
+            add(&sym, name);
+        }
+    }
+
+    let header = file.header();
+    if matches!(header.e_type, ET_EXEC | ET_DYN)
+        && header.entry != 0
+        && by_start.len() < MAX_FUNCTIONS
+    {
+        by_start.entry(header.entry).or_insert(FunctionGuess {
+            start: header.entry,
+            size: 0,
+            name: None,
+            group: None,
+        });
+    }
+
+    let mut out: Vec<FunctionGuess> = by_start.into_values().collect();
+    assign_groups(&mut out);
+    out
+}
+
+/// Adds one function start: the first source to report an address wins,
+/// later ones only fill in a missing name or size.
+fn add_guess(
+    by_start: &mut BTreeMap<u64, FunctionGuess>,
+    start: u64,
+    size: u64,
+    name: Option<String>,
+) {
+    if by_start.len() >= MAX_FUNCTIONS && !by_start.contains_key(&start) {
+        return;
+    }
+    let e = by_start.entry(start).or_insert(FunctionGuess {
+        start,
+        size: 0,
+        name: None,
+        group: None,
+    });
+    if e.name.is_none() {
+        e.name = name;
+    }
+    if e.size == 0 {
+        e.size = size;
+    }
+}
+
+/// A PE symbol or export name as shown: demangled without the hash for
+/// Rust names (also behind an i386 `@<n>` stdcall suffix), as is for
+/// others.
+fn display_name(raw: &[u8]) -> Option<String> {
+    if raw.len() > MAX_NAME_LEN {
+        return None;
+    }
+    let n = std::str::from_utf8(raw).ok().filter(|n| !n.is_empty())?;
+    if let Some(d) = names::demangle_rust(n) {
+        return Some(d);
+    }
+    let undecorated = n
+        .rsplit_once('@')
+        .filter(|(_, d)| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(n, |(base, _)| base);
+    Some(names::demangle_rust(undecorated).unwrap_or_else(|| n.to_owned()))
+}
+
+/// Functions of a PE image at its preferred base: `.pdata` (x64), COFF
+/// symbols, exports, the entry point and the TLS callbacks.
+fn pe_functions(pe: &PeFile<'_>) -> Vec<FunctionGuess> {
+    let mut by_start: BTreeMap<u64, FunctionGuess> = BTreeMap::new();
+    let base = pe.image_base();
+    let va = |rva: u64| base.checked_add(rva);
+    for rf in pe.runtime_functions() {
+        if rf.chained {
+            continue;
+        }
+        if let Some(s) = va(u64::from(rf.begin)) {
+            add_guess(&mut by_start, s, u64::from(rf.end - rf.begin), None);
+        }
+    }
+    for sym in pe.coff_symbols() {
+        if !sym.is_function() {
+            continue;
+        }
+        let Some(rva) = pe.symbol_rva(&sym) else {
+            continue;
+        };
+        if !pe.is_executable_rva(rva) {
+            continue;
+        }
+        if let Some(s) = va(rva) {
+            add_guess(&mut by_start, s, 0, display_name(sym.name));
+        }
+    }
+    if let Some(exports) = pe.exports() {
+        for e in exports.entries {
+            let rva = u64::from(e.rva);
+            if e.forwarder.is_some() || !pe.is_executable_rva(rva) {
+                continue;
+            }
+            if let Some(s) = va(rva) {
+                add_guess(&mut by_start, s, 0, e.name.and_then(display_name));
+            }
+        }
+    }
+    if let Some(e) = pe.entry_rva()
+        && let Some(s) = va(u64::from(e))
+        && pe.is_executable_rva(u64::from(e))
+    {
+        add_guess(&mut by_start, s, 0, None);
+    }
+    if let Some(tls) = pe.tls() {
+        for cb in tls.callbacks {
+            if pe.va_to_rva(cb).is_some_and(|r| pe.is_executable_rva(r)) {
+                add_guess(&mut by_start, cb, 0, None);
+            }
+        }
+    }
+    let mut out: Vec<FunctionGuess> = by_start.into_values().collect();
+    assign_groups(&mut out);
+    out
 }
 
 fn is_function(sym: &Symbol) -> bool {

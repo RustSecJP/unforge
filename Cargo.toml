@@ -2,12 +2,16 @@
 resolver = "3"
 members = [
     "crates/unforge-elf",
+    "crates/unforge-pe",
     "crates/unforge-cli",
     "crates/unforge-testgen",
     "crates/unforge-analysis",
     "crates/unforge-bench",
+    "crates/unforge-disasm",
+    "crates/unforge-report",
+    "crates/unforge-sigs",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "mekiki/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -18,7 +22,10 @@ repository = "https://github.com/RustSecJP/unforge"
 [workspace.dependencies]
 zerocopy = { version = "0.8", features = ["derive"] }
 unforge-elf = { path = "crates/unforge-elf" }
+unforge-pe = { path = "crates/unforge-pe" }
 unforge-analysis = { path = "crates/unforge-analysis" }
+unforge-disasm = { path = "crates/unforge-disasm" }
+unforge-sigs = { path = "crates/unforge-sigs" }
 # 答え合わせ専用（dev-dependencies からだけ使う）
 object = { version = "0.41", default-features = false, features = ["read_core", "elf", "std"] }
 goblin = { version = "0.10", default-features = false, features = ["elf32", "elf64", "endian_fd", "std"] }
@@ -28,6 +35,10 @@ rustc-demangle = "0.1.28"
 gimli = { version = "0.32", default-features = false, features = ["read"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# 逆アセンブル（unforge-disasm）用。ワークスペースでただ一つのサードパーティの
+# 命令デコーダーで、許可を得て加えたもの。使う機能だけを選ぶ（instr_info は
+# 分岐の種類を知るため）。std が引き込む lazy_static は既に Cargo.lock にある。
+iced-x86 = { version = "=1.22.0", default-features = false, features = ["std", "decoder", "intel", "instr_info"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

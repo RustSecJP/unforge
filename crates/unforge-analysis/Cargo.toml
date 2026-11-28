@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 unforge-elf.workspace = true
+unforge-pe.workspace = true
 rustc-demangle.workspace = true
 
 [lints]

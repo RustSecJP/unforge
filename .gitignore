@@ -4,3 +4,4 @@
 /fuzz/corpus/differential
 /fuzz/artifacts
 /bench/corpus
+/testdata/pe/bin

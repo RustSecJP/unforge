@@ -605,6 +605,15 @@ fn bad_command_lines_exit_2() {
         &["elf", "--bogus", "x"],
         &["elf", "a", "b"],
         &["elf", "--header"],
+        &["disasm"],
+        &["disasm", "--count", "0", "x"],
+        &["disasm", "--addr", "zz", "x"],
+        &["disasm", "--function", "a", "--addr", "1", "x"],
+        &["sig"],
+        &["sig", "build", "x"],
+        &["sig", "build", "-o", "db"],
+        &["sig", "match", "x"],
+        &["sig", "match", "--db", "db"],
     ] {
         let o = run_str(args);
         assert_eq!(o.status.code(), Some(2), "{args:?}");
@@ -618,7 +627,15 @@ fn bad_command_lines_exit_2() {
 
 #[test]
 fn help_goes_to_stdout_and_succeeds() {
-    for args in [&["--help"][..], &["-h"], &["elf", "--help"], &["help"]] {
+    for args in [
+        &["--help"][..],
+        &["-h"],
+        &["elf", "--help"],
+        &["disasm", "--help"],
+        &["sig", "build", "--help"],
+        &["sig", "match", "-h"],
+        &["help"],
+    ] {
         let o = run_str(args);
         assert_eq!(o.status.code(), Some(0), "{args:?}");
         assert!(stdout(&o).contains("Usage:"), "{args:?}");
@@ -810,7 +827,8 @@ fn broken_symbol_table_is_reported_and_others_still_print() {
 // Robustness: truncated and mutated inputs never panic.
 // ---------------------------------------------------------------------------
 
-/// Run `unforge elf` on every input in parallel and check none panicked.
+/// Run `unforge elf` and `unforge disasm` on every input in parallel and
+/// check none panicked.
 fn run_all_no_panic(inputs: Vec<(String, Vec<u8>)>) {
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let chunk = inputs.len().div_ceil(threads).max(1);
@@ -820,6 +838,8 @@ fn run_all_no_panic(inputs: Vec<(String, Vec<u8>)>) {
                 for (tag, bytes) in part {
                     let p = write_temp("fuzz", bytes);
                     let o = run_elf(&p, &[]);
+                    assert_no_panic(&o, tag);
+                    let o = run(&["disasm".as_ref(), p.as_os_str()]);
                     assert_no_panic(&o, tag);
                     let _ = std::fs::remove_file(&p);
                 }
@@ -871,6 +891,282 @@ fn mutated_inputs_never_panic() {
         inputs.push((format!("garbage {n}"), m));
     }
     run_all_no_panic(inputs);
+}
+
+// ---------------------------------------------------------------------------
+// `unforge disasm`
+// ---------------------------------------------------------------------------
+
+fn run_disasm(path: &Path, flags: &[&str]) -> Output {
+    let mut v: Vec<&std::ffi::OsStr> = vec!["disasm".as_ref()];
+    v.extend(flags.iter().map(std::ffi::OsStr::new));
+    v.push(path.as_os_str());
+    run(&v)
+}
+
+#[test]
+fn disasm_minimal_elf() {
+    let b = minimal_elf(LAYOUTS[0], 0);
+    let p = write_temp("disasm", &b.bytes);
+    // The entry point is `main`: `ret` and three `nop`s (its size is 4).
+    for flags in [&[][..], &["--function", "mai"], &["--addr", "0x4000b0"]] {
+        let o = run_disasm(&p, flags);
+        assert_eq!(o.status.code(), Some(0), "{flags:?}: {}", stderr(&o));
+        let out = stdout(&o);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 5, "{flags:?}:\n{out}");
+        assert_eq!(lines[0], "00000000004000b0 <main> (4 bytes):", "{out}");
+        assert!(lines[4].ends_with("  nop"), "{out}");
+        assert!(lines[1].starts_with("00000000004000b0:  c3 "), "{out}");
+        assert!(lines[1].ends_with("  ret"), "{out}");
+    }
+    // Inside the segment but not a function: decoded until the first ret.
+    let o = run_disasm(&p, &["--addr", "4000b1"]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert!(stdout(&o).contains("<<unknown>> (size unknown):"));
+    // Not backed by the file.
+    let o = run_disasm(&p, &["--addr", "1234"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("not backed by file bytes"),
+        "{}",
+        stderr(&o)
+    );
+    // No such function.
+    let o = run_disasm(&p, &["--function", "nope"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        stderr(&o).contains("no recovered function"),
+        "{}",
+        stderr(&o)
+    );
+}
+
+#[test]
+fn disasm_refuses_other_cpus() {
+    let mut b = minimal_elf(LAYOUTS[0], 0).bytes;
+    put_u16(&mut b, 18, 183); // EM_AARCH64
+    let p = write_temp("disasm-arm", &b);
+    let o = run_disasm(&p, &[]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stderr(&o).contains("only x86 and x86-64"), "{}", stderr(&o));
+    assert!(o.stdout.is_empty());
+}
+
+/// The `unforge` binary itself: a real Rust executable with symbols.
+#[test]
+fn disasm_own_binary_names_call_targets() {
+    if !cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        eprintln!("skipped: needs an x86-64 Linux host");
+        return;
+    }
+    let o = run_disasm(
+        Path::new(BIN),
+        &["--function", "unforge::main", "--count", "400"],
+    );
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    let out = stdout(&o);
+    assert!(out.contains(" <unforge::main> ("), "{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.contains(" call 0x") && l.contains("  ; -> unforge::")),
+        "{out}"
+    );
+    // --count bounds every function.
+    let o = run_disasm(Path::new(BIN), &["--function", "::", "--count", "3"]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    let out = stdout(&o);
+    let headers = out.lines().filter(|l| l.ends_with("):")).count();
+    let insns = out.lines().filter(|l| l.contains(":  ")).count();
+    assert!(headers > 0 && headers <= 64, "{headers}");
+    assert!(insns <= headers * 3, "{insns} > 3 * {headers}");
+    assert!(
+        stderr(&o).contains("showing the first 64"),
+        "{}",
+        stderr(&o)
+    );
+}
+
+#[test]
+fn disasm_anomalous_files_never_panic() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/anomalous/files");
+    let mut files = Vec::new();
+    collect_files(&dir, &mut files);
+    assert!(!files.is_empty(), "no files under {}", dir.display());
+    for p in &files {
+        for flags in [&[][..], &["--function", "a"], &["--addr", "0"]] {
+            let o = run_disasm(p, flags);
+            assert_no_panic(&o, &p.display().to_string());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `unforge sig`
+// ---------------------------------------------------------------------------
+
+fn run_sig(args: &[&std::ffi::OsStr]) -> Output {
+    let mut v: Vec<&std::ffi::OsStr> = vec!["sig".as_ref()];
+    v.extend_from_slice(args);
+    run(&v)
+}
+
+/// A copy of `path` without symbols, made with `objcopy --strip-all`, or
+/// `None` when objcopy is not installed.
+fn stripped_copy(path: &Path, tag: &str) -> Option<PathBuf> {
+    let out = temp_path(tag);
+    let ok = Command::new("objcopy")
+        .arg("--strip-all")
+        .arg(path)
+        .arg(&out)
+        .output()
+        .ok()?
+        .status
+        .success();
+    ok.then_some(out)
+}
+
+/// Build a database from the `unforge` binary itself and match a stripped
+/// copy of it: nearly every function that has a size gets its name back.
+#[test]
+fn sig_build_and_match_own_binary() {
+    if !cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        eprintln!("skipped: needs an x86-64 Linux host");
+        return;
+    }
+    let Some(stripped) = stripped_copy(Path::new(BIN), "sig-stripped") else {
+        eprintln!("skipped: objcopy not found");
+        return;
+    };
+    let db = temp_path("sig-db");
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        db.as_os_str(),
+        BIN.as_ref(),
+    ]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert!(o.stdout.is_empty());
+    assert!(
+        stderr(&o).contains("named functions added"),
+        "{}",
+        stderr(&o)
+    );
+
+    let o = run_sig(&[
+        "match".as_ref(),
+        "--db".as_ref(),
+        db.as_os_str(),
+        stripped.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    let out = stdout(&o);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines.len() > 300, "only {} functions named", lines.len());
+    for l in &lines {
+        let (addr, rest) = l.split_once("  ").expect("two columns");
+        assert_eq!(addr.len(), 16, "{l}");
+        assert!(u64::from_str_radix(addr, 16).is_ok(), "{l}");
+        assert!(!rest.is_empty(), "{l}");
+    }
+    assert!(
+        lines.iter().any(|l| l.ends_with("  unforge::main")),
+        "unforge::main not named"
+    );
+    assert!(stderr(&o).contains("note: named "), "{}", stderr(&o));
+
+    // Merging a database into a new one keeps it.
+    let db2 = temp_path("sig-db2");
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        db2.as_os_str(),
+        db.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+    assert_eq!(
+        std::fs::read(&db).expect("db"),
+        std::fs::read(&db2).expect("db2")
+    );
+}
+
+#[test]
+fn sig_bad_inputs_exit_1() {
+    let garbage = write_temp("sig-garbage", b"not an elf and not a db");
+    let db = temp_path("sig-db-bad");
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        db.as_os_str(),
+        garbage.as_os_str(),
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+    assert!(!db.exists(), "nothing is written on failure");
+    // A truncated database.
+    let bad_db = write_temp("sig-trunc", b"UFSIGDB\0\x01\0");
+    let o = run_sig(&[
+        "match".as_ref(),
+        "--db".as_ref(),
+        bad_db.as_os_str(),
+        BIN.as_ref(),
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+    assert!(stderr(&o).contains("signature database"), "{}", stderr(&o));
+    // Not a database at all.
+    let o = run_sig(&[
+        "match".as_ref(),
+        "--db".as_ref(),
+        garbage.as_os_str(),
+        BIN.as_ref(),
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{}", stderr(&o));
+}
+
+#[test]
+fn sig_anomalous_files_never_panic() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/anomalous/files");
+    let mut files = Vec::new();
+    collect_files(&dir, &mut files);
+    assert!(!files.is_empty(), "no files under {}", dir.display());
+    let empty_db = temp_path("sig-empty-db");
+    // Building from a non-ELF file fails, so make an empty database from
+    // a garbage-free start: the minimal ELF has no named functions.
+    let b = minimal_elf(LAYOUTS[0], 0);
+    let elf = write_temp("sig-min", &b.bytes);
+    let o = run_sig(&[
+        "build".as_ref(),
+        "-o".as_ref(),
+        empty_db.as_os_str(),
+        elf.as_os_str(),
+    ]);
+    assert_no_panic(&o, "minimal elf");
+    for p in &files {
+        let db = temp_path("sig-anom");
+        let o = run_sig(&[
+            "build".as_ref(),
+            "-o".as_ref(),
+            db.as_os_str(),
+            p.as_os_str(),
+        ]);
+        assert_no_panic(&o, &p.display().to_string());
+        if empty_db.exists() {
+            let o = run_sig(&[
+                "match".as_ref(),
+                "--db".as_ref(),
+                empty_db.as_os_str(),
+                p.as_os_str(),
+            ]);
+            assert_no_panic(&o, &p.display().to_string());
+        }
+        // The anomalous file read as a database.
+        let o = run_sig(&[
+            "match".as_ref(),
+            "--db".as_ref(),
+            p.as_os_str(),
+            elf.as_os_str(),
+        ]);
+        assert_no_panic(&o, &p.display().to_string());
+    }
 }
 
 // ---------------------------------------------------------------------------

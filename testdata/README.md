@@ -18,6 +18,28 @@ cargo test -p unforge-elf --test corpus_oracle
 
 `corpus_oracle` skips (with a message) when `bin/` does not exist.
 
+## Windows PE files (`pe/`)
+
+`pe/build.sh` builds real Rust PE files into `pe/bin/<target>/` for
+`x86_64-pc-windows-msvc` and `i686-pc-windows-msvc` (whichever std is
+installed: `rustup target add ...`), with nothing but rustup's own pieces:
+rust-lld links the official std rlibs, import libraries are generated with
+`llvm-dlltool` (from `rustup component add llvm-tools`, any toolchain) from
+the symbols a first link attempt reports missing, and `pe/crt.rs` stands in
+for the few MSVC CRT objects (entry point, TLS directory). No Visual Studio,
+Windows SDK or MinGW is needed. The files are never run.
+
+| file | what it exercises |
+|---|---|
+| `winapp-O0.exe`, `winapp-O2.exe` | `pe/winapp.rs`: a TLS callback, file and environment access through std, the dependency `fakedep` (compiled with its source remapped to `C:\Users\dev\.cargo\registry\src\index.crates.io-...\fakedep-1.2.3\`), panics |
+| `windll.dll` | `pe/windll.rs`: a `cdylib` with two exported functions that use std |
+
+Each image comes with the linker's `/MAP` file (function addresses and
+mangled names: the ground truth, since the names are otherwise only in the
+PDB) and the `.pdb`. `cargo test -p unforge-pe --test real_files` and the
+PE tests of the other crates skip when `pe/bin/` does not exist (it is not
+committed either).
+
 ## Programs (`src/`)
 
 | file | what it exercises |
