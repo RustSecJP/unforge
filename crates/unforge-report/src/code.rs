@@ -5,12 +5,15 @@
 //!   rows from it without any text.
 //! - [`disasm_at`]: the text of the few instructions on screen.
 //!
-//! Only x86 / x86-64 files have code (see [`unforge_disasm::bitness_for`]).
+//! Only x86 / x86-64 files have code (see [`unforge_disasm::bitness_for`]
+//! and [`unforge_disasm::bitness_for_pe`]). ELF files and PE images are
+//! both handled, through [`Image`].
 
 use serde::Serialize;
-use unforge_analysis::Analysis;
+use unforge_analysis::{Analysis, Image};
 use unforge_disasm::{
-    Bitness, Flow, bitness_for, disassemble, disassemble_function_bytes, function_bytes_in,
+    Bitness, Flow, bitness_for, bitness_for_pe, disassemble, disassemble_function_bytes,
+    function_bytes_in, pe_function_bytes,
 };
 use unforge_elf::{ElfFile, MemoryMap};
 
@@ -26,7 +29,7 @@ const MAX_INSN_LEN: usize = 15;
 /// For every recovered function that is backed by file bytes, in address
 /// order: `start: u64`, `count: u32`, then `count` instruction lengths of
 /// one byte each. Integers are little-endian. Empty when the file is not
-/// x86 / x86-64 or not an ELF file at all.
+/// x86 / x86-64, or neither an ELF file nor a PE image.
 ///
 /// A function of known size is decoded over its whole size; one of
 /// unknown size up to its first `ret` (see
@@ -47,20 +50,19 @@ pub fn code_map(data: &[u8]) -> Vec<u8> {
 /// for example a report's rows after fingerprints added starts. The list
 /// must be sorted by start.
 pub fn code_map_for(data: &[u8], functions: &[(u64, u64)]) -> Vec<u8> {
-    let Ok(elf) = ElfFile::parse(data) else {
+    let Ok(image) = Image::parse(data) else {
         return Vec::new();
     };
-    let Some(bitness) = bitness_of(&elf) else {
+    let Some(bitness) = image_bitness(&image) else {
         return Vec::new();
     };
-    let map = elf.memory_map();
     let mut out = Vec::new();
     let mut total = 0usize;
     for &(start, size) in functions {
         if total >= MAX_CODE_MAP_INSNS {
             break;
         }
-        let Some(bytes) = function_bytes_in(&map, data, start, size) else {
+        let Some(bytes) = function_bytes(&image, start, size) else {
             continue;
         };
         let max = MAX_INSNS_PER_FUNCTION.min(MAX_CODE_MAP_INSNS - total);
@@ -97,18 +99,17 @@ pub fn disasm_at(data: &[u8], addrs: &[u64]) -> Vec<Option<InsnText>> {
     let addrs = addrs
         .get(..addrs.len().min(MAX_DISASM_AT))
         .unwrap_or_default();
-    let Ok(elf) = ElfFile::parse(data) else {
+    let Ok(image) = Image::parse(data) else {
         return vec![None; addrs.len()];
     };
-    let Some(bitness) = bitness_of(&elf) else {
+    let Some(bitness) = image_bitness(&image) else {
         return vec![None; addrs.len()];
     };
-    let map = elf.memory_map();
-    addrs.iter().map(|&a| one(&map, data, a, bitness)).collect()
+    addrs.iter().map(|&a| one(&image, a, bitness)).collect()
 }
 
-fn one(map: &MemoryMap, data: &[u8], addr: u64, bitness: Bitness) -> Option<InsnText> {
-    let bytes = map.bytes_at(data, addr)?;
+fn one(image: &Image<'_>, addr: u64, bitness: Bitness) -> Option<InsnText> {
+    let bytes = image.bytes_at(addr)?;
     let bytes = bytes.get(..bytes.len().min(MAX_INSN_LEN))?;
     let i = disassemble(bytes, addr, bitness, 1).into_iter().next()?;
     Some(InsnText {
@@ -132,6 +133,25 @@ fn one(map: &MemoryMap, data: &[u8], addr: u64, bitness: Bitness) -> Option<Insn
 fn bitness_of(elf: &ElfFile<'_>) -> Option<Bitness> {
     let h = elf.header();
     bitness_for(h.machine, h.class)
+}
+
+/// The decoder mode for an ELF file or a PE image.
+pub fn image_bitness(image: &Image<'_>) -> Option<Bitness> {
+    match (image.elf(), image.pe()) {
+        (Some(elf), _) => bitness_of(elf),
+        (_, Some(pe)) => bitness_for_pe(pe.machine()),
+        _ => None,
+    }
+}
+
+/// The bytes of a function (see [`unforge_disasm::function_bytes_in`] and
+/// [`unforge_disasm::pe_function_bytes`]).
+fn function_bytes<'d>(image: &Image<'d>, start: u64, size: u64) -> Option<&'d [u8]> {
+    match (image.elf_map(), image.pe()) {
+        (Some(map), _) => function_bytes_in(map, image.data(), start, size),
+        (_, Some(pe)) => pe_function_bytes(pe, start, size),
+        _ => None,
+    }
 }
 
 /// Splits a [`code_map`] back into `(start, lengths)` records; stops at the
@@ -169,12 +189,17 @@ pub const MAX_STR: u64 = 4096;
 /// Reads `len` bytes at `addr` as a string literal: valid UTF-8, no NULs and
 /// no control characters other than tab / newline.
 pub fn str_at(data: &[u8], map: &MemoryMap, addr: u64, len: u64) -> Option<String> {
+    str_in(&|a| map.bytes_at(data, a), addr, len)
+}
+
+/// Bytes at a virtual address, whatever the format.
+type BytesAt<'a, 'd> = &'a dyn Fn(u64) -> Option<&'d [u8]>;
+
+fn str_in(bytes_at: BytesAt<'_, '_>, addr: u64, len: u64) -> Option<String> {
     if len == 0 || len > MAX_STR {
         return None;
     }
-    let bytes = map
-        .bytes_at(data, addr)?
-        .get(..usize::try_from(len).ok()?)?;
+    let bytes = bytes_at(addr)?.get(..usize::try_from(len).ok()?)?;
     let s = std::str::from_utf8(bytes).ok()?;
     s.chars()
         .all(|c| !c.is_control() || c == '\t' || c == '\n')
@@ -206,20 +231,41 @@ pub fn panic_location_at(
     relocs: &Relocated,
     addr: u64,
 ) -> Option<PanicLocation> {
-    let b = map.bytes_at(data, addr)?.get(..24)?;
-    let word = |i: usize| -> Option<u64> {
+    panic_location_in(&|a| map.bytes_at(data, a), relocs, addr, 8)
+}
+
+/// [`panic_location_at`] for words of `word` bytes (8, or 4 in 32-bit
+/// code: file pointer and length are `usize`), reading through `bytes_at`.
+fn panic_location_in(
+    bytes_at: BytesAt<'_, '_>,
+    relocs: &Relocated,
+    addr: u64,
+    word: usize,
+) -> Option<PanicLocation> {
+    let b = bytes_at(addr)?.get(..2 * word + 8)?;
+    let read_word = |i: usize| -> Option<u64> {
         if let Some(&v) = relocs.get(&addr.wrapping_add(i as u64)) {
             return Some(v);
         }
-        Some(u64::from_le_bytes(b.get(i..i + 8)?.try_into().ok()?))
+        let w = b.get(i..i + word)?;
+        Some(if word == 8 {
+            u64::from_le_bytes(w.try_into().ok()?)
+        } else {
+            u64::from(u32::from_le_bytes(w.try_into().ok()?))
+        })
     };
     let half =
         |i: usize| -> Option<u32> { Some(u32::from_le_bytes(b.get(i..i + 4)?.try_into().ok()?)) };
-    let (ptr, len, line, col) = (word(0)?, word(8)?, half(16)?, half(20)?);
+    let (ptr, len, line, col) = (
+        read_word(0)?,
+        read_word(word)?,
+        half(2 * word)?,
+        half(2 * word + 4)?,
+    );
     if !(1..=10_000_000).contains(&line) || col > 100_000 || !(4..=1024).contains(&len) {
         return None;
     }
-    let file = str_at(data, map, ptr, len)?;
+    let file = str_in(bytes_at, ptr, len)?;
     (file.ends_with(".rs") && !file.contains('\n')).then_some(PanicLocation { file, line, col })
 }
 
@@ -230,17 +276,31 @@ pub fn panic_location_at(
 /// - an `(address, length)` pair of arguments that is a string literal:
 ///   `// "called `Result::unwrap()` on an `Err` value"`
 ///
-/// Only x86-64 files (the layout read above); others come back unchanged.
+/// ELF: only x86-64 files (the layout read above). PE: x86-64 and x86
+/// images; their pointers are absolute addresses at the preferred image
+/// base, which is where the decompiler shows the image, so no relocation
+/// has to be applied. Other files come back unchanged.
 pub fn annotate(data: &[u8], code: &str) -> String {
-    let Ok(elf) = ElfFile::parse(data) else {
+    let Ok(image) = Image::parse(data) else {
         return code.to_owned();
     };
-    if bitness_of(&elf) != Some(Bitness::B64) {
-        return code.to_owned();
-    }
-    let map = elf.memory_map();
-    let relocs = relocated(&elf);
-    let regions = string_regions(&elf);
+    let (relocs, regions, word) = match (image.elf(), image.pe()) {
+        (Some(elf), _) => {
+            if bitness_of(elf) != Some(Bitness::B64) {
+                return code.to_owned();
+            }
+            (relocated(elf), string_regions(elf), 8)
+        }
+        (_, Some(pe)) => {
+            let Some(b) = bitness_for_pe(pe.machine()) else {
+                return code.to_owned();
+            };
+            let word = if b == Bitness::B64 { 8 } else { 4 };
+            (Relocated::new(), pe_string_regions(pe), word)
+        }
+        _ => return code.to_owned(),
+    };
+    let bytes_at = |a: u64| image.bytes_at(a);
     let in_strings = |a: u64, len: u64| {
         regions
             .iter()
@@ -256,13 +316,13 @@ pub fn annotate(data: &[u8], code: &str) -> String {
             if !is_hex {
                 continue;
             }
-            if let Some(loc) = panic_location_at(data, &map, &relocs, n) {
+            if let Some(loc) = panic_location_in(&bytes_at, &relocs, n, word) {
                 notes.push(format!("at {}:{}:{}", loc.file, loc.line, loc.col));
                 continue;
             }
             if let Some(&(len, _)) = nums.get(i + 1)
                 && in_strings(n, len)
-                && let Some(s) = str_at(data, &map, n, len)
+                && let Some(s) = str_in(&bytes_at, n, len)
             {
                 let shown: String = s.chars().take(120).collect();
                 let more = if s.chars().count() > 120 { "…" } else { "" };
@@ -332,6 +392,23 @@ fn string_regions(elf: &ElfFile<'_>) -> Vec<(u64, u64)> {
         }
     }
     out
+}
+
+/// Where string literals live in a PE image: initialized, read-only,
+/// non-executable sections (`.rdata`), at the preferred base.
+fn pe_string_regions(pe: &unforge_pe::PeFile<'_>) -> Vec<(u64, u64)> {
+    let base = pe.image_base();
+    pe.regions()
+        .iter()
+        .filter(|r| r.section.is_some() && !r.is_executable() && !r.is_writable())
+        .filter(|r| r.characteristics & unforge_pe::SCN_CNT_INITIALIZED_DATA != 0)
+        .map(|r| {
+            (
+                base.saturating_add(r.start),
+                base.saturating_add(r.start).saturating_add(r.file_len),
+            )
+        })
+        .collect()
 }
 
 /// The integer literals of a line, in order: (value, written in hex).

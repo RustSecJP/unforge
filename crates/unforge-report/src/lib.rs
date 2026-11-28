@@ -1,7 +1,8 @@
 //! What Mekiki (the desktop UI in `mekiki/`) shows about one file.
 //!
 //! [`report`] runs [`unforge_analysis::Analysis`] and the `unforge-elf` audit
-//! on the bytes of a file and turns the results into a [`Report`], plain data
+//! (or the `unforge-pe` diagnostics for a Windows PE image) on the bytes of
+//! a file and turns the results into a [`Report`], plain data
 //! that serializes to JSON for the UI. The Tauri app calls it in-process; the
 //! `report` example prints the same JSON for a file on the command line.
 //!
@@ -27,9 +28,15 @@ pub mod signatures;
 use serde::Serialize;
 use unforge_analysis::{Analysis, Group, names};
 use unforge_elf::{Class, ElfFile, Endian};
+use unforge_pe::PeFile;
 
 /// Bumped when the shape of [`Report`] changes (the UI checks it).
-pub const REPORT_VERSION: u32 = 3;
+///
+/// 4: PE images; [`FileSummary::format`], [`FileSummary::pdb_path`] and
+/// [`Report::imports`] were added.
+pub const REPORT_VERSION: u32 = 4;
+/// At most this many imports are listed.
+pub const MAX_IMPORT_ROWS: usize = 65_536;
 
 /// At most this many diagnostics are put in a report.
 pub const MAX_WARNINGS: usize = 1000;
@@ -59,24 +66,45 @@ pub struct Report {
     pub warnings: Vec<Warning>,
     /// Findings left out because of [`MAX_WARNINGS`].
     pub warnings_omitted: usize,
+    /// Imported functions with the address of their pointer slot (PE: the
+    /// IAT), so that calls through a slot can be labelled. Empty for ELF.
+    pub imports: Vec<ImportRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportRow {
+    /// Virtual address of the slot the loader fills in.
+    pub slot: u64,
+    /// The DLL as written in the file (`KERNEL32.dll`).
+    pub dll: String,
+    /// The function name, or `#<ordinal>`.
+    pub name: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct FileSummary {
+    /// `ELF` or `PE`.
+    pub format: &'static str,
     pub size: u64,
-    /// `ELF32` / `ELF64`.
+    /// `ELF32` / `ELF64`, or `PE32` / `PE32+`.
     pub class: &'static str,
     /// `little` / `big`.
     pub endian: &'static str,
     /// CPU name, or `machine 0x..` when unknown.
     pub machine: String,
-    /// `executable`, `PIE executable`, `shared object`, ...
+    /// `executable`, `PIE executable`, `shared object`, ..., or for PE
+    /// `PE executable` / `PE DLL`.
     pub kind: String,
     pub entry: u64,
-    /// No `.symtab` left.
+    /// No `.symtab` left (PE: no COFF symbol table, as with every
+    /// MSVC-linked image).
     pub stripped: bool,
     pub sections: u64,
+    /// Program headers; for PE the sections again (each is mapped).
     pub segments: u64,
+    /// PE: the PDB path of the CodeView record (often the build
+    /// directory on the author's machine).
+    pub pdb_path: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -173,7 +201,7 @@ pub struct Warning {
     pub offset: Option<u64>,
 }
 
-/// The input is not an ELF file at all.
+/// The input is not an ELF file or a PE image at all.
 #[derive(Debug, Serialize)]
 pub struct Failure {
     pub version: u32,
@@ -186,12 +214,6 @@ pub fn report(data: &[u8]) -> Result<Report, Failure> {
         version: REPORT_VERSION,
         error: e.to_string(),
     })?;
-    let Some(elf) = analysis.elf() else {
-        return Err(Failure {
-            version: REPORT_VERSION,
-            error: "PE files are not supported yet".to_owned(),
-        });
-    };
 
     let mut functions = FunctionCounts::default();
     let mut function_rows = Vec::new();
@@ -269,6 +291,47 @@ pub fn report(data: &[u8]) -> Result<Report, Failure> {
             .then_with(|| a.version.cmp(&b.version))
     });
 
+    let (file, sections, segments, (warnings, warnings_omitted), imports) =
+        match (analysis.elf(), analysis.pe()) {
+            (Some(elf), _) => (
+                summary(elf),
+                sections(elf),
+                segments(elf),
+                elf_warnings(elf),
+                Vec::new(),
+            ),
+            (_, Some(pe)) => (
+                pe_summary(pe),
+                pe_sections(pe),
+                pe_segments(pe),
+                pe_warnings(pe),
+                pe_imports(pe),
+            ),
+            _ => {
+                return Err(Failure {
+                    version: REPORT_VERSION,
+                    error: "unknown file format".to_owned(),
+                });
+            }
+        };
+
+    Ok(Report {
+        version: REPORT_VERSION,
+        file,
+        rustc_commit,
+        functions,
+        function_rows,
+        functions_omitted,
+        sections,
+        segments,
+        crates,
+        warnings,
+        warnings_omitted,
+        imports,
+    })
+}
+
+fn elf_warnings(elf: &ElfFile<'_>) -> (Vec<Warning>, usize) {
     let mut diagnostics = elf.diagnostics();
     diagnostics.sort_by_key(|d| std::cmp::Reverse(d.severity));
     let warnings_omitted = diagnostics.len().saturating_sub(MAX_WARNINGS);
@@ -283,20 +346,199 @@ pub fn report(data: &[u8]) -> Result<Report, Failure> {
             offset: d.location.range.map(|r| r.offset),
         })
         .collect();
+    (warnings, warnings_omitted)
+}
 
-    Ok(Report {
-        version: REPORT_VERSION,
-        file: summary(elf),
-        rustc_commit,
-        functions,
-        function_rows,
-        functions_omitted,
-        sections: sections(elf),
-        segments: segments(elf),
-        crates,
-        warnings,
-        warnings_omitted,
-    })
+fn pe_warnings(pe: &PeFile<'_>) -> (Vec<Warning>, usize) {
+    let mut diagnostics = pe.diagnostics();
+    diagnostics.sort_by_key(|d| std::cmp::Reverse(d.severity));
+    let omitted = diagnostics.len().saturating_sub(MAX_WARNINGS);
+    let warnings = diagnostics
+        .into_iter()
+        .take(MAX_WARNINGS)
+        .map(|d| Warning {
+            severity: d.severity.to_string(),
+            category: match d.category() {
+                unforge_pe::Category::Format => "format",
+                unforge_pe::Category::Consistency => "consistency",
+                unforge_pe::Category::Loader => "loader",
+                _ => "other",
+            },
+            kind: d.kind.name(),
+            message: d.to_string(),
+            offset: d.offset,
+        })
+        .collect();
+    (warnings, omitted)
+}
+
+fn pe_summary(pe: &PeFile<'_>) -> FileSummary {
+    let n = pe.sections().len() as u64;
+    FileSummary {
+        format: "PE",
+        size: pe.data().len() as u64,
+        class: match pe.kind() {
+            unforge_pe::PeKind::Pe32 => "PE32",
+            _ => "PE32+",
+        },
+        endian: "little",
+        machine: pe_machine_name(pe.machine()),
+        kind: if pe.is_dll() {
+            "PE DLL".to_owned()
+        } else {
+            "PE executable".to_owned()
+        },
+        entry: pe
+            .entry_rva()
+            .and_then(|e| pe.rva_to_va(u64::from(e)))
+            .unwrap_or(0),
+        stripped: pe.coff_symbols().is_empty(),
+        sections: n,
+        segments: n,
+        pdb_path: pe.codeview().map(|c| {
+            String::from_utf8_lossy(c.path)
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(MAX_SECTION_NAME * 4)
+                .collect()
+        }),
+    }
+}
+
+fn pe_machine_name(m: u16) -> String {
+    match m {
+        unforge_pe::MACHINE_AMD64 => "x86-64".to_owned(),
+        unforge_pe::MACHINE_I386 => "x86".to_owned(),
+        unforge_pe::MACHINE_ARM64 => "AArch64".to_owned(),
+        unforge_pe::MACHINE_ARMNT => "ARM".to_owned(),
+        _ => format!("machine 0x{m:x}"),
+    }
+}
+
+/// `A` (every section is mapped), `W`, `X`, readelf style, so the UI
+/// treats PE sections like ELF ones.
+fn pe_section_flags(c: u32) -> String {
+    let mut f = String::from("A");
+    if c & unforge_pe::SCN_MEM_WRITE != 0 {
+        f.push('W');
+    }
+    if c & (unforge_pe::SCN_MEM_EXECUTE | unforge_pe::SCN_CNT_CODE) != 0 {
+        f.push('X');
+    }
+    f
+}
+
+fn pe_section_kind(c: u32) -> String {
+    if c & unforge_pe::SCN_CNT_CODE != 0 {
+        "CODE".to_owned()
+    } else if c & unforge_pe::SCN_CNT_INITIALIZED_DATA != 0 {
+        "DATA".to_owned()
+    } else if c & unforge_pe::SCN_CNT_UNINITIALIZED_DATA != 0 {
+        "BSS".to_owned()
+    } else {
+        format!("0x{c:x}")
+    }
+}
+
+/// Sections as the loader maps them: `addr` is the virtual address, and
+/// `offset` / `size` are the file bytes behind it (after the loader's
+/// alignment rules), so `offset + (a - addr)` is the file offset of `a`.
+/// A section with no file bytes is `nobits`, with its memory size.
+fn pe_sections(pe: &PeFile<'_>) -> Vec<SectionRow> {
+    let base = pe.image_base();
+    let mut rows: Vec<SectionRow> = Vec::new();
+    for s in pe.sections().iter().take(MAX_TABLE_ROWS) {
+        let region = pe
+            .regions()
+            .iter()
+            .find(|r| r.section == Some(s.index))
+            .copied();
+        let mut name = pe.section_name(s);
+        name.truncate(name.floor_char_boundary(MAX_SECTION_NAME));
+        let (addr, offset, size, nobits) = match region {
+            Some(r) if r.file_len > 0 => (
+                base.saturating_add(r.start),
+                r.file_offset,
+                r.file_len.min(r.end - r.start),
+                false,
+            ),
+            Some(r) => (base.saturating_add(r.start), 0, r.end - r.start, true),
+            None => (
+                base.saturating_add(u64::from(s.virtual_address)),
+                u64::from(s.pointer_to_raw_data),
+                0,
+                true,
+            ),
+        };
+        rows.push(SectionRow {
+            index: s.index,
+            name,
+            kind: pe_section_kind(s.characteristics),
+            flags: pe_section_flags(s.characteristics),
+            addr,
+            offset,
+            size,
+            nobits,
+        });
+    }
+    rows
+}
+
+/// For PE, every section is a mapping: the segments mirror the sections
+/// (`LOAD`, `R` `W` `E` flags, file bytes and memory size).
+fn pe_segments(pe: &PeFile<'_>) -> Vec<SegmentRow> {
+    let base = pe.image_base();
+    pe.regions()
+        .iter()
+        .filter_map(|r| Some((r.section?, r)))
+        .take(MAX_TABLE_ROWS)
+        .map(|(index, r)| SegmentRow {
+            index,
+            kind: "LOAD".to_owned(),
+            flags: [
+                (unforge_pe::SCN_MEM_READ, 'R'),
+                (unforge_pe::SCN_MEM_WRITE, 'W'),
+                (unforge_pe::SCN_MEM_EXECUTE | unforge_pe::SCN_CNT_CODE, 'E'),
+            ]
+            .iter()
+            .map(|&(bit, c)| if r.characteristics & bit != 0 { c } else { '-' })
+            .collect(),
+            offset: r.file_offset,
+            vaddr: base.saturating_add(r.start),
+            filesz: r.file_len,
+            memsz: r.end - r.start,
+        })
+        .collect()
+}
+
+fn pe_imports(pe: &PeFile<'_>) -> Vec<ImportRow> {
+    let base = pe.image_base();
+    let mut out = Vec::new();
+    for dll in pe.imports() {
+        let d: String = String::from_utf8_lossy(dll.name)
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect();
+        for e in &dll.entries {
+            if out.len() >= MAX_IMPORT_ROWS {
+                return out;
+            }
+            let name = match &e.kind {
+                unforge_pe::ImportKind::Name { name, .. } => String::from_utf8_lossy(name)
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .collect(),
+                unforge_pe::ImportKind::Ordinal(o) => format!("#{o}"),
+                unforge_pe::ImportKind::Unreadable(_) => continue,
+            };
+            out.push(ImportRow {
+                slot: base.saturating_add(u64::from(e.slot_rva)),
+                dll: d.clone(),
+                name,
+            });
+        }
+    }
+    out
 }
 
 /// [`report`], then the function starts the fingerprint matcher finds and,
@@ -351,6 +593,7 @@ fn summary(elf: &ElfFile<'_>) -> FileSummary {
             .any(|p| p.p_type == PT_INTERP)
     });
     FileSummary {
+        format: "ELF",
         size: elf.data().len() as u64,
         class: match h.class {
             Class::Elf32 => "ELF32",
@@ -375,6 +618,7 @@ fn summary(elf: &ElfFile<'_>) -> FileSummary {
         stripped: elf.section_by_name(b".symtab").is_none(),
         sections: h.shnum,
         segments: h.phnum,
+        pdb_path: None,
     }
 }
 

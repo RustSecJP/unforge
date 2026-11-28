@@ -19,8 +19,8 @@ const fn = (start: number, size: number, name: string | null = null): FunctionRo
 
 function report(sections: SectionRow[], fns: FunctionRow[]): Report {
   return {
-    version: 3,
-    file: { size: 0, class: 'ELF64', endian: 'little', machine: 'x86-64', kind: 'executable', entry: 0, stripped: false, sections: sections.length, segments: 0 },
+    version: 4,
+    file: { format: 'ELF', size: 0, class: 'ELF64', endian: 'little', machine: 'x86-64', kind: 'executable', entry: 0, stripped: false, sections: sections.length, segments: 0, pdb_path: null },
     rustc_commit: null,
     functions: { total: fns.length, user: 0, dependency: 0, std: 0, unknown: fns.length },
     function_rows: fns,
@@ -30,6 +30,7 @@ function report(sections: SectionRow[], fns: FunctionRow[]): Report {
     crates: [],
     warnings: [],
     warnings_omitted: 0,
+    imports: [],
   }
 }
 

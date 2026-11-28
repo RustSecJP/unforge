@@ -1,9 +1,11 @@
 // The JSON of `unforge_report::Report` (crates/unforge-report/src/lib.rs).
 // Keep in step with `REPORT_VERSION` there.
 
-export const REPORT_VERSION = 3
+export const REPORT_VERSION = 4
 
 export interface FileSummary {
+  /** `ELF` or `PE` */
+  format: 'ELF' | 'PE'
   size: number
   class: string
   endian: string
@@ -13,6 +15,16 @@ export interface FileSummary {
   stripped: boolean
   sections: number
   segments: number
+  /** PE: the PDB path of the CodeView record (often the author's build directory) */
+  pdb_path: string | null
+}
+
+/** An imported function and the address of its pointer slot (PE: the IAT). */
+export interface ImportRow {
+  slot: number
+  dll: string
+  /** the function name, or `#<ordinal>` */
+  name: string
 }
 
 export interface FunctionCounts {
@@ -98,6 +110,8 @@ export interface Report {
   crates: CrateRow[]
   warnings: Warning[]
   warnings_omitted: number
+  /** empty for ELF files */
+  imports: ImportRow[]
 }
 
 export type Outcome = { ok: true; report: Report } | { ok: false; error: string }

@@ -394,6 +394,7 @@ dependencies = [
  "unforge-analysis",
  "unforge-disasm",
  "unforge-elf",
+ "unforge-pe",
  "unforge-sigs",
 ]
 

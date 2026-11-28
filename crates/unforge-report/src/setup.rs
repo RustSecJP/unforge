@@ -3,7 +3,7 @@
 //! text commands it reads on stdin:
 //!
 //! ```text
-//! seg <vaddr> <fileoff> <filesz> <flags>   a PT_LOAD mapping, flags like RE
+//! seg <vaddr> <fileoff> <filesz> <flags>   a PT_LOAD mapping (PE: a section), flags like RE
 //! sym <addr> <name>                         a recovered function (FUN_<addr> when unnamed)
 //! ptr <slot> <value>                        an 8-byte pointer the loader writes at
 //!                                           <slot> (a relocation), so indirect calls
@@ -12,11 +12,19 @@
 //! ```
 //!
 //! Numbers are hex. Names never contain control characters.
+//!
+//! For a PE image, addresses are at the preferred image base (`ImageBase +
+//! RVA`), where the image's own absolute pointers point, so no `ptr` lines
+//! are needed; every IAT slot gets an `ext` line named `dll!function`
+//! (`KERNEL32.dll!CreateFileW`, or `dll!#<ordinal>`), so a call through
+//! the IAT prints as a call to that name. The language uses Ghidra's
+//! `windows` compiler spec (the Microsoft x64 / Win32 calling conventions).
 
 use std::fmt::Write as _;
 
-use unforge_analysis::Analysis;
+use unforge_analysis::{Analysis, Image};
 use unforge_elf::ElfFile;
+use unforge_pe::PeFile;
 
 /// At most this many relocated pointer slots are reported.
 pub const MAX_SLOTS: usize = 1 << 20;
@@ -50,6 +58,17 @@ pub fn language(elf: &ElfFile<'_>) -> Option<&'static str> {
     match elf.header().machine {
         EM_X86_64 => Some("x86:LE:64:default:gcc"),
         EM_386 => Some("x86:LE:32:default:gcc"),
+        _ => None,
+    }
+}
+
+/// Ghidra's language id for a PE image, if the decompiler handles its CPU.
+/// Both ids exist in `mekiki/decompiler/specs/x86/x86.ldefs` (compiler
+/// `windows`: `x86-64-win.cspec`, `x86win.cspec`).
+pub fn pe_language(pe: &PeFile<'_>) -> Option<&'static str> {
+    match pe.machine() {
+        unforge_pe::MACHINE_AMD64 => Some("x86:LE:64:default:windows"),
+        unforge_pe::MACHINE_I386 => Some("x86:LE:32:default:windows"),
         _ => None,
     }
 }
@@ -142,7 +161,8 @@ fn clean(name: &str) -> String {
 }
 
 /// The language id and the setup commands for the decompiler helper, or
-/// `None` when the file cannot be decompiled (not an ELF, or another CPU).
+/// `None` when the file cannot be decompiled (neither ELF nor PE, or
+/// another CPU).
 pub fn decompiler_setup(data: &[u8]) -> Option<(&'static str, String)> {
     let analysis = Analysis::new(data).ok()?;
     let fns: Vec<(u64, Option<String>)> = analysis
@@ -159,8 +179,12 @@ pub fn decompiler_setup_for(
     data: &[u8],
     functions: &[(u64, Option<String>)],
 ) -> Option<(&'static str, String)> {
-    let elf = ElfFile::parse(data).ok()?;
-    let lang = language(&elf)?;
+    let image = Image::parse(data).ok()?;
+    if let Some(pe) = image.pe() {
+        return pe_setup(pe, functions);
+    }
+    let elf = image.elf()?;
+    let lang = language(elf)?;
     let mut out = String::new();
     if let Ok(phdrs) = elf.program_headers() {
         for p in phdrs.iter() {
@@ -184,6 +208,19 @@ pub fn decompiler_setup_for(
     }
     // Every known function start, named or not: the decompiler also uses
     // them as boundaries, so flow does not run on into the next function.
+    sym_lines(&mut out, functions);
+    for (slot, target) in pointer_slots(elf) {
+        let _ = match target {
+            SlotTarget::Address(a) => writeln!(out, "ptr {slot:x} {a:x}"),
+            SlotTarget::Import(n) => writeln!(out, "ext {slot:x} {n}"),
+        };
+    }
+    Some((lang, out))
+}
+
+/// `sym` lines for the functions: every known start, named or not (the
+/// decompiler also uses them as boundaries).
+fn sym_lines(out: &mut String, functions: &[(u64, Option<String>)]) {
     for (start, name) in functions {
         match name.as_deref().map(clean).filter(|n| !n.is_empty()) {
             Some(name) => writeln!(out, "sym {start:x} {name}"),
@@ -191,11 +228,45 @@ pub fn decompiler_setup_for(
         }
         .ok();
     }
-    for (slot, target) in pointer_slots(&elf) {
-        let _ = match target {
-            SlotTarget::Address(a) => writeln!(out, "ptr {slot:x} {a:x}"),
-            SlotTarget::Import(n) => writeln!(out, "ext {slot:x} {n}"),
-        };
+}
+
+/// [`decompiler_setup_for`] for a PE image: one `seg` per section with file
+/// bytes, then the functions, then one `ext` per IAT slot.
+fn pe_setup(
+    pe: &PeFile<'_>,
+    functions: &[(u64, Option<String>)],
+) -> Option<(&'static str, String)> {
+    let lang = pe_language(pe)?;
+    let base = pe.image_base();
+    let mut out = String::new();
+    for r in pe.regions().iter().filter(|r| r.section.is_some()) {
+        if r.file_len == 0 {
+            continue;
+        }
+        let flags: String = [
+            (unforge_pe::SCN_MEM_READ, 'R'),
+            (unforge_pe::SCN_MEM_WRITE, 'W'),
+            (unforge_pe::SCN_MEM_EXECUTE | unforge_pe::SCN_CNT_CODE, 'E'),
+        ]
+        .iter()
+        .filter(|&&(b, _)| r.characteristics & b != 0)
+        .map(|&(_, c)| c)
+        .collect();
+        let _ = writeln!(
+            out,
+            "seg {:x} {:x} {:x} {}",
+            base.saturating_add(r.start),
+            r.file_offset,
+            r.file_len,
+            if flags.is_empty() { "R" } else { &flags }
+        );
+    }
+    sym_lines(&mut out, functions);
+    for (slot, name) in pe.iat_names().into_iter().take(MAX_SLOTS) {
+        let name = clean(&name);
+        if !name.is_empty() {
+            let _ = writeln!(out, "ext {:x} {name}", base.saturating_add(u64::from(slot)));
+        }
     }
     Some((lang, out))
 }
