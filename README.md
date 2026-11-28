@@ -16,6 +16,8 @@ Rust でビルドされたバイナリを、Rust として読むための道具�
   - 命令の解読には [iced-x86](https://crates.io/crates/iced-x86) を使います。ワークスペースでただ一つのサードパーティの命令デコーダーで、使う機能（`std`、`decoder`、`intel`、`instr_info`）だけを有効にしています。
   - 解読できないバイトは 1 バイトの `(bad)` として報告し、次のバイトから続けます。どんな入力でもパニックしません。
 - **unforge**（CLI）: ELF のヘッダー、セグメント、セクション、シンボルを表示します。x86 / x86-64 の関数を逆アセンブルして表示します（呼び出し先が見つかった関数なら、その名前も添えます）。
+- **unforge-report**: 解析の結果（関数、crate とその版、セクション、セグメント、警告）を、画面で使う形にまとめます。
+- **Mekiki**（`mekiki/`）: 解析の結果を見るデスクトップアプリです。詳しくは [mekiki/README.md](mekiki/README.md) を見てください。
 
 ```sh
 cargo run -p unforge -- elf --header --segments --sections --symbols path/to/binary

@@ -7,8 +7,9 @@ members = [
     "crates/unforge-analysis",
     "crates/unforge-bench",
     "crates/unforge-disasm",
+    "crates/unforge-report",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "mekiki/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

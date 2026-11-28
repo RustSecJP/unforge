@@ -379,6 +379,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-report"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unforge-analysis",
+ "unforge-elf",
+]
+
+[[package]]
 name = "unforge-testgen"
 version = "0.1.0"
 
