@@ -1,0 +1,15 @@
+[package]
+name = "unforge-sigs"
+description = "Function fingerprints for naming functions in stripped Rust binaries (part of unforge)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unforge-elf.workspace = true
+unforge-analysis.workspace = true
+unforge-disasm.workspace = true
+
+[lints]
+workspace = true

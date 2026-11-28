@@ -12,6 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 unforge-elf.workspace = true
+unforge-analysis.workspace = true
+unforge-disasm.workspace = true
+unforge-sigs.workspace = true
 
 [lints]
 workspace = true
