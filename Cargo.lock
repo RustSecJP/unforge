@@ -368,6 +368,7 @@ dependencies = [
  "iced-x86",
  "unforge-analysis",
  "unforge-elf",
+ "unforge-pe",
 ]
 
 [[package]]

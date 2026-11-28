@@ -9,6 +9,11 @@
 //! - [`function_bytes`] finds the file bytes of a function in an ELF file
 //!   through its `PT_LOAD` segments; [`disassemble_function`] does both.
 //! - [`bitness_for`] picks the decoder mode for an ELF `e_machine`.
+//! - For PE images, [`bitness_for_pe`] does the same for the COFF machine,
+//!   [`pe_function_bytes`] finds the bytes through the section mapping and
+//!   [`disassemble_pe_function`] does both. Addresses are virtual addresses
+//!   at the image's preferred base (`ImageBase + RVA`), as in the image's
+//!   own pointers and as disassemblers show them.
 //!
 //! # Decoder
 //!
@@ -41,6 +46,7 @@ use iced_x86::{
 };
 use unforge_elf::consts::{EM_386, EM_X86_64};
 use unforge_elf::{Class, ElfFile, MemoryMap};
+use unforge_pe::PeFile;
 
 /// Decoder mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +138,18 @@ pub fn bitness_for(machine: u16, class: Class) -> Option<Bitness> {
     match machine {
         EM_X86_64 => Some(Bitness::B64),
         EM_386 => Some(Bitness::B32),
+        _ => None,
+    }
+}
+
+/// Bitness for a PE COFF machine: `IMAGE_FILE_MACHINE_AMD64` (0x8664)
+/// gives [`Bitness::B64`], `IMAGE_FILE_MACHINE_I386` (0x14c) gives
+/// [`Bitness::B32`], any other CPU gives `None`. As for ELF, the machine
+/// decides, not PE32 / PE32+.
+pub fn bitness_for_pe(machine: u16) -> Option<Bitness> {
+    match machine {
+        unforge_pe::MACHINE_AMD64 => Some(Bitness::B64),
+        unforge_pe::MACHINE_I386 => Some(Bitness::B32),
         _ => None,
     }
 }
@@ -338,6 +356,35 @@ pub fn disassemble_function(
     let header = elf.header();
     let bitness = bitness_for(header.machine, header.class)?;
     let bytes = function_bytes(elf, start, size)?;
+    Some(disassemble_function_bytes(
+        bytes, start, size, bitness, max_insns,
+    ))
+}
+
+/// The file bytes of the function at virtual address `start` (the image
+/// base plus the RVA) with `size` bytes of a PE image, through its section
+/// mapping ([`PeFile::bytes_at_va`]).
+///
+/// The result is cut where the section's file bytes stop (the rest of a
+/// section is zero-fill, not code), so it may be shorter than `size`. When
+/// `size` is 0 (unknown), at most [`UNKNOWN_SIZE_LIMIT`] bytes are
+/// returned. `None` when `start` is not backed by file bytes.
+pub fn pe_function_bytes<'d>(pe: &PeFile<'d>, start: u64, size: u64) -> Option<&'d [u8]> {
+    let bytes = pe.bytes_at_va(start)?;
+    let want = if size == 0 { UNKNOWN_SIZE_LIMIT } else { size };
+    let n = usize::try_from(want).unwrap_or(usize::MAX).min(bytes.len());
+    bytes.get(..n)
+}
+
+/// [`disassemble_function`] for a PE image (see [`pe_function_bytes`]).
+pub fn disassemble_pe_function(
+    pe: &PeFile<'_>,
+    start: u64,
+    size: u64,
+    max_insns: usize,
+) -> Option<Vec<Insn>> {
+    let bitness = bitness_for_pe(pe.machine())?;
+    let bytes = pe_function_bytes(pe, start, size)?;
     Some(disassemble_function_bytes(
         bytes, start, size, bitness, max_insns,
     ))
