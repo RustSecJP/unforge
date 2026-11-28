@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 unforge-elf = { path = "../crates/unforge-elf" }
+unforge-disasm = { path = "../crates/unforge-disasm" }
 # Oracles for fuzz_targets/differential.rs only (same versions and features as
 # the workspace dev-dependencies).
 object = { version = "0.41", default-features = false, features = ["read_core", "elf", "std"] }
@@ -28,6 +29,13 @@ bench = false
 [[bin]]
 name = "differential"
 path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "disasm"
+path = "fuzz_targets/disasm.rs"
 test = false
 doc = false
 bench = false
