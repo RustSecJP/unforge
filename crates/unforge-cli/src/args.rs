@@ -7,6 +7,8 @@
 //! unforge --version | -V
 //! unforge elf [--header] [--segments] [--sections] [--symbols]
 //!             [--strict] [--loader-checks] [--] <file>
+//! unforge pe [--header] [--sections] [--imports] [--exports] [--pdata]
+//!            [--strict] [--] <file>
 //! unforge disasm [--function <name-substring> | --addr <hex>] [--count <n>]
 //!                [--] <file>
 //! unforge sig build -o <db> [--min-insns <n>] [--min-bytes <n>] [--] <file>...
@@ -38,6 +40,39 @@ impl Show {
     }
 }
 
+/// Which parts of the file `unforge pe` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PeShow {
+    pub header: bool,
+    pub sections: bool,
+    pub imports: bool,
+    pub exports: bool,
+    /// The x64 exception table, TLS callbacks and base relocations.
+    pub pdata: bool,
+}
+
+impl PeShow {
+    const ALL: PeShow = PeShow {
+        header: true,
+        sections: true,
+        imports: true,
+        exports: true,
+        pdata: true,
+    };
+
+    fn any(self) -> bool {
+        self.header || self.sections || self.imports || self.exports || self.pdata
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeArgs {
+    pub path: PathBuf,
+    pub show: PeShow,
+    /// Exit with status 1 if any warning is printed.
+    pub strict: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElfArgs {
     pub path: PathBuf,
@@ -51,7 +86,7 @@ pub struct ElfArgs {
 /// Where `unforge disasm` starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DisasmTarget {
-    /// The entry point (`e_entry`).
+    /// The entry point (`e_entry`, or the PE `AddressOfEntryPoint`).
     Entry,
     /// Every recovered function whose name contains this text.
     Function(String),
@@ -96,6 +131,7 @@ pub enum Command {
     Help,
     Version,
     Elf(ElfArgs),
+    Pe(PeArgs),
     Disasm(DisasmArgs),
     SigBuild(SigBuildArgs),
     SigMatch(SigMatchArgs),
@@ -110,7 +146,10 @@ unforge - read Rust binaries as Rust
 
 Usage:
   unforge elf [OPTIONS] <FILE>    Print the ELF structure of FILE
+  unforge pe [OPTIONS] <FILE>     Print the PE structure of FILE (Windows
+                                  .exe / .dll)
   unforge disasm [OPTIONS] <FILE> Disassemble x86 / x86-64 code in FILE
+                                  (ELF or PE)
   unforge sig build -o <DB> [OPTIONS] <FILE>...
                                   Build a signature database from FILEs
                                   with symbols (or merge databases)
@@ -128,6 +167,15 @@ Options for `elf` (default: all parts):
       --loader-checks  Also report what the Linux kernel and ld.so would do
                        with the file (for the machine in its header)
   -h, --help           Print this help
+
+Options for `pe` (default: all parts):
+      --header         Print the headers, data directories and PDB path
+      --sections       Print the section table and what each maps
+      --imports        Print the imported DLLs and functions (IAT slots)
+      --exports        Print the exports
+      --pdata          Print the x64 exception table (function starts
+                       and ends), TLS callbacks and the relocation count
+      --strict         Exit with status 1 if any warning is reported
 
 Options for `disasm` (default: the entry point):
       --function <TEXT>  Every recovered function whose name contains TEXT
@@ -152,6 +200,9 @@ stderr.
 Branches, calls and RIP-relative references to a recovered function end in
 `; -> name`. A function of unknown size is disassembled up to its first
 return, at most 4096 bytes.
+
+PE addresses are virtual addresses at the preferred image base
+(ImageBase + RVA).
 
 The file is read tolerantly: everything readable is printed, and anomalies
 (including every value the reader had to infer) are reported on stderr as
@@ -178,6 +229,7 @@ where
         Some("--help" | "-h" | "help") => Ok(Command::Help),
         Some("--version" | "-V") => Ok(Command::Version),
         Some("elf") => parse_elf(args),
+        Some("pe") => parse_pe(args),
         Some("disasm") => parse_disasm(args),
         Some("sig") => parse_sig(args),
         _ => Err(UsageError(format!(
@@ -234,6 +286,52 @@ fn parse_elf(args: impl Iterator<Item = OsString>) -> Result<Command, UsageError
         show: if show.any() { show } else { Show::ALL },
         strict,
         loader_checks,
+    }))
+}
+
+fn parse_pe(args: impl Iterator<Item = OsString>) -> Result<Command, UsageError> {
+    let mut show = PeShow::default();
+    let mut strict = false;
+    let mut path: Option<OsString> = None;
+    let mut only_positional = false;
+    for arg in args {
+        let is_option = !only_positional
+            && arg.as_encoded_bytes().starts_with(b"-")
+            && arg.as_encoded_bytes() != b"-";
+        if !is_option {
+            if path.is_some() {
+                return Err(UsageError(format!(
+                    "unexpected extra argument '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+            path = Some(arg);
+            continue;
+        }
+        match arg.to_str() {
+            Some("--") => only_positional = true,
+            Some("--help" | "-h") => return Ok(Command::Help),
+            Some("--header") => show.header = true,
+            Some("--sections") => show.sections = true,
+            Some("--imports") => show.imports = true,
+            Some("--exports") => show.exports = true,
+            Some("--pdata") => show.pdata = true,
+            Some("--strict") => strict = true,
+            _ => {
+                return Err(UsageError(format!(
+                    "unknown option '{}'",
+                    arg.to_string_lossy()
+                )));
+            }
+        }
+    }
+    let Some(path) = path else {
+        return Err(UsageError("missing <FILE> for 'pe'".into()));
+    };
+    Ok(Command::Pe(PeArgs {
+        path: path.into(),
+        show: if show.any() { show } else { PeShow::ALL },
+        strict,
     }))
 }
 

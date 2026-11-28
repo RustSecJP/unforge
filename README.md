@@ -2,7 +2,7 @@
 
 Rust でビルドされたバイナリを、Rust として読むための道具です（作成中、v0.1）。
 
-今あるのは、その土台となる ELF の読み取りと、x86 / x86-64 の逆アセンブルと、ストリップされたバイナリの関数に指紋で名前を付ける仕組みです。
+今あるのは、その土台となる ELF と Windows の PE（`.exe` / `.dll`）の読み取りと、x86 / x86-64 の逆アセンブルと、ストリップされたバイナリの関数に指紋で名前を付ける仕組みです。
 
 - **unforge-elf**: 壊れた ELF や、わざと崩した ELF でも、読めるところまで読む ELF リーダーです。
   - パニックしません。`unsafe` も使いません（`#![forbid(unsafe_code)]`）。
@@ -24,13 +24,15 @@ Rust でビルドされたバイナリを、Rust として読むための道具�
 - **unforge-sigs**: 関数の指紋（配置で変わるアドレスや分岐先を伏せた命令列のハッシュ）を作り、シンボルの残っているバイナリから指紋のデータベースを作って、ストリップされたバイナリの関数に名前を付けます（IDA の FLIRT、Ghidra の Function ID と同じ考え方）。
   - 同じ std を含む別のプログラムどうしで、精度 99〜100 %、再現率 85〜87 %（testdata のプログラム、リリースビルド）。詳しい数字と正規化の規則は [crates/unforge-sigs/README.md](crates/unforge-sigs/README.md) にあります。
   - データベースは版付きのバイナリ形式で、同じ入力からは必ず同じバイト列になります。
-- **unforge**（CLI）: ELF のヘッダー、セグメント、セクション、シンボルを表示します。x86 / x86-64 の関数を逆アセンブルして表示します（呼び出し先が見つかった関数なら、その名前も添えます）。指紋のデータベースを作り、それで関数に名前を付けます。
+- **unforge**（CLI）: ELF のヘッダー、セグメント、セクション、シンボルを表示します。PE のヘッダー、セクション、インポート、エクスポート、`.pdata`、TLS コールバックを表示します（`unforge pe`）。x86 / x86-64 の関数を、ELF でも PE でも逆アセンブルして表示します（呼び出し先が見つかった関数や、PE の IAT を通した呼び出しなら、その名前も添えます）。指紋のデータベースを作り、それで関数に名前を付けます。
 - **unforge-report**: 解析の結果（関数、crate とその版、セクション、セグメント、警告）を、画面で使う形にまとめます。
 - **Mekiki**（`mekiki/`）: 解析の結果を見るデスクトップアプリです。詳しくは [mekiki/README.md](mekiki/README.md) を見てください。
 
 ```sh
 cargo run -p unforge -- elf --header --segments --sections --symbols path/to/binary
 cargo run -p unforge -- elf --strict --loader-checks path/to/binary
+cargo run -p unforge -- pe --imports --pdata path/to/malware.exe
+cargo run -p unforge -- disasm --addr 0x140001000 path/to/malware.exe
 cargo run -p unforge -- disasm --function main --count 50 path/to/binary
 cargo run -p unforge -- disasm --addr 0x401000 path/to/binary
 cargo run -p unforge -- sig build -o std.db path/to/with-symbols...

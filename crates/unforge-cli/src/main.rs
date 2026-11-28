@@ -1,8 +1,9 @@
 //! `unforge`: read Rust binaries as Rust.
 //!
-//! Commands: `unforge elf <file>` (the ELF loader), `unforge disasm
-//! <file>` (x86 / x86-64 disassembly of recovered functions) and `unforge
-//! sig build|match` (function signatures, see `sig.rs`).
+//! Commands: `unforge elf <file>` (the ELF loader), `unforge pe <file>`
+//! (the PE reader, see `pe.rs`), `unforge disasm <file>` (x86 / x86-64
+//! disassembly of recovered functions, ELF or PE) and `unforge sig
+//! build|match` (function signatures, see `sig.rs`).
 //!
 //! This binary must never panic on any input or environment: no `unwrap`,
 //! `expect`, or slice indexing on data derived from the file, and every write
@@ -25,6 +26,7 @@
 mod args;
 mod disasm;
 mod names;
+mod pe;
 mod print;
 mod sig;
 
@@ -33,7 +35,7 @@ use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-use args::{Command, DisasmArgs, ElfArgs, HELP, SigBuildArgs, SigMatchArgs};
+use args::{Command, DisasmArgs, ElfArgs, HELP, PeArgs, SigBuildArgs, SigMatchArgs};
 
 /// Exit status for I/O and parse errors.
 const EXIT_FAILURE: u8 = 1;
@@ -97,6 +99,7 @@ fn main() -> ExitCode {
             write_stdout(concat!("unforge ", env!("CARGO_PKG_VERSION"), "\n").as_bytes())
         }
         Command::Elf(a) => elf(&a),
+        Command::Pe(a) => pe_command(&a),
         Command::Disasm(a) => disasm(&a),
         Command::SigBuild(a) => sig_build(&a),
         Command::SigMatch(a) => sig_match(&a),
@@ -243,6 +246,45 @@ fn stdout_error(e: &io::Error) -> ExitCode {
     ExitCode::from(EXIT_FAILURE)
 }
 
+/// `unforge pe`: the PE reader's view of the file, diagnostics on stderr
+/// (`note:` / `warning:`), like `unforge elf`.
+fn pe_command(a: &PeArgs) -> ExitCode {
+    let report = |e: &dyn std::fmt::Display| {
+        let _ = writeln!(io::stderr(), "unforge: {}: {e}", a.path.display());
+        ExitCode::from(EXIT_FAILURE)
+    };
+    let data = match read_input(&a.path) {
+        Ok(d) => d,
+        Err(e) => return report(&e),
+    };
+    let file = match unforge_pe::PeFile::parse(&data) {
+        Ok(f) => f,
+        Err(e) => return report(&e),
+    };
+    let mut warned = false;
+    {
+        let mut err = io::stderr().lock();
+        for d in file.diagnostics() {
+            let label = match d.severity {
+                unforge_pe::Severity::Info => "note",
+                unforge_pe::Severity::Warning => "warning",
+                _ => "warning: would not load",
+            };
+            warned |= d.severity >= unforge_pe::Severity::Warning;
+            let _ = writeln!(err, "unforge: {}: {label}: {d}", a.path.display());
+        }
+    }
+    let mut out = BufWriter::new(io::stdout().lock());
+    let result = pe::print(&mut out, &file, a.show).and_then(|()| out.flush());
+    let failed = a.strict && warned;
+    match result {
+        Ok(()) if failed => ExitCode::from(EXIT_FAILURE),
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe && failed => ExitCode::from(EXIT_FAILURE),
+        Err(e) => stdout_error(&e),
+    }
+}
+
 fn elf(a: &ElfArgs) -> ExitCode {
     let report = |e: &dyn std::fmt::Display| {
         let _ = writeln!(io::stderr(), "unforge: {}: {e}", a.path.display());
@@ -291,18 +333,19 @@ fn disasm(a: &DisasmArgs) -> ExitCode {
         Ok(an) => an,
         Err(e) => return report(&e),
     };
-    let Some(elf) = analysis.elf() else {
-        return report(&"disassembling PE files is not supported yet");
-    };
-    let header = elf.header();
-    let Some(bitness) = unforge_disasm::bitness_for(header.machine, header.class) else {
+    let image = analysis.image();
+    let Some(bitness) = unforge_sigs::image_bitness(image) else {
+        let m = image.machine();
+        let what = match image.format() {
+            unforge_analysis::Format::Elf => names::machine(m),
+            _ => format!("PE machine {m:#x}"),
+        };
         return report(&format!(
-            "cannot disassemble code for {}: only x86 and x86-64 are supported",
-            names::machine(header.machine)
+            "cannot disassemble code for {what}: only x86 and x86-64 are supported"
         ));
     };
     let funcs = analysis.functions();
-    let (jobs, total) = disasm::jobs(&a.target, header.entry, &funcs);
+    let (jobs, total) = disasm::jobs(&a.target, image.entry().unwrap_or(0), &funcs);
     if let args::DisasmTarget::Function(pattern) = &a.target {
         if jobs.is_empty() {
             return report(&format!(
@@ -319,14 +362,28 @@ fn disasm(a: &DisasmArgs) -> ExitCode {
             );
         }
     }
-    let by_start = disasm::name_index(&funcs);
-    let map = elf.memory_map();
+    let mut by_start = disasm::name_index(&funcs);
+    // PE: a call through an IAT slot (`call [rip+slot]`) points at the
+    // slot; name it after the import.
+    let iat: Vec<(u64, String)> = image.pe().map_or_else(Vec::new, |pe| {
+        pe.iat_names()
+            .into_iter()
+            .map(|(slot, n)| (pe.image_base().wrapping_add(u64::from(slot)), n))
+            .collect()
+    });
+    for (slot, n) in &iat {
+        by_start.entry(*slot).or_insert(n.as_str());
+    }
     let mut out = BufWriter::new(io::stdout().lock());
     let mut printed = 0usize;
     let mut unmapped = 0usize;
     for (k, job) in jobs.iter().enumerate() {
-        let Some(bytes) = unforge_disasm::function_bytes_in(&map, &data, job.start, job.size)
-        else {
+        let bytes = match (image.elf_map(), image.pe()) {
+            (Some(map), _) => unforge_disasm::function_bytes_in(map, &data, job.start, job.size),
+            (_, Some(pe)) => unforge_disasm::pe_function_bytes(pe, job.start, job.size),
+            _ => None,
+        };
+        let Some(bytes) = bytes else {
             unmapped += 1;
             let _ = writeln!(
                 io::stderr(),
