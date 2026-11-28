@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/unforge-elf",
+    "crates/unforge-pe",
     "crates/unforge-cli",
     "crates/unforge-testgen",
     "crates/unforge-analysis",
@@ -21,6 +22,7 @@ repository = "https://github.com/RustSecJP/unforge"
 [workspace.dependencies]
 zerocopy = { version = "0.8", features = ["derive"] }
 unforge-elf = { path = "crates/unforge-elf" }
+unforge-pe = { path = "crates/unforge-pe" }
 unforge-analysis = { path = "crates/unforge-analysis" }
 unforge-disasm = { path = "crates/unforge-disasm" }
 unforge-sigs = { path = "crates/unforge-sigs" }

@@ -380,6 +380,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-pe"
+version = "0.1.0"
+
+[[package]]
 name = "unforge-report"
 version = "0.1.0"
 dependencies = [
