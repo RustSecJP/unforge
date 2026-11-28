@@ -163,10 +163,8 @@ pub mod starts;
 
 use std::collections::BTreeMap;
 
-use unforge_analysis::{Analysis, names};
+use unforge_analysis::{Analysis, Image, names};
 use unforge_disasm::Bitness;
-use unforge_elf::consts::PF_X;
-use unforge_elf::{ElfFile, MemoryMap};
 
 pub use db::{Db, DbError, Entry, SigName};
 pub use normalize::Fingerprint;
@@ -226,40 +224,41 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Fingerprints the functions of one ELF file.
+/// The decoder mode for an ELF file or a PE image, `None` for CPUs other
+/// than x86 / x86-64.
+pub fn image_bitness(image: &Image<'_>) -> Option<Bitness> {
+    match (image.elf(), image.pe()) {
+        (Some(elf), _) => {
+            let h = elf.header();
+            unforge_disasm::bitness_for(h.machine, h.class)
+        }
+        (_, Some(pe)) => unforge_disasm::bitness_for_pe(pe.machine()),
+        _ => None,
+    }
+}
+
+/// Fingerprints the functions of one ELF file or PE image.
+///
+/// Addresses are the image's own: ELF `p_vaddr`s, PE `ImageBase + RVA`.
+/// The masking does not depend on the format: in 64-bit code a number is
+/// layout-dependent when it is a mapped address of the image (for PE
+/// that covers the absolute addresses the base relocations patch), and
+/// RIP-relative operands are masked as for ELF.
 pub struct Fingerprinter<'a, 'data> {
-    elf: &'a ElfFile<'data>,
-    map: MemoryMap,
+    image: &'a Image<'data>,
     bitness: Bitness,
-    /// Mapped address ranges `[start, end)`, sorted.
-    mapped: Vec<(u64, u64)>,
 }
 
 impl<'a, 'data> Fingerprinter<'a, 'data> {
     /// `Err` when the file is not for x86 / x86-64.
-    pub fn new(elf: &'a ElfFile<'data>) -> Result<Self, Error> {
-        let header = elf.header();
-        let bitness = unforge_disasm::bitness_for(header.machine, header.class)
-            .ok_or(Error::UnsupportedMachine(header.machine))?;
-        let map = elf.memory_map();
-        let mut mapped: Vec<(u64, u64)> = map.regions().map(|r| (r.start, r.end)).collect();
-        mapped.sort_unstable();
-        Ok(Fingerprinter {
-            elf,
-            map,
-            bitness,
-            mapped,
-        })
+    pub fn new(image: &'a Image<'data>) -> Result<Self, Error> {
+        let bitness = image_bitness(image).ok_or(Error::UnsupportedMachine(image.machine()))?;
+        Ok(Fingerprinter { image, bitness })
     }
 
     /// Whether `addr` is mapped by the file.
     pub fn is_mapped(&self, addr: u64) -> bool {
-        let i = self.mapped.partition_point(|&(s, _)| s <= addr);
-        i > 0
-            && self
-                .mapped
-                .get(i - 1)
-                .is_some_and(|&(s, e)| s <= addr && addr < e)
+        self.image.is_mapped(addr)
     }
 
     /// Whether a number in an operand (that is not the instruction's
@@ -280,24 +279,25 @@ impl<'a, 'data> Fingerprinter<'a, 'data> {
 
     /// Whether `addr` is in executable memory.
     pub fn is_executable(&self, addr: u64) -> bool {
-        self.map
-            .backing_ref(addr)
-            .is_some_and(|b| b.flags & PF_X != 0)
+        self.image.is_executable(addr)
     }
 
     /// The end (exclusive) of the executable region holding `addr`.
     fn executable_end(&self, addr: u64) -> Option<u64> {
-        self.map
-            .regions()
-            .find(|r| r.start <= addr && addr < r.end && r.flags & PF_X != 0)
-            .map(|r| r.end)
+        self.image.executable_end(addr)
     }
 
     fn insns(&self, start: u64, size: u64) -> Option<Vec<unforge_disasm::Insn>> {
         if size == 0 {
             return None;
         }
-        let bytes = unforge_disasm::function_bytes_in(&self.map, self.elf.data(), start, size)?;
+        let bytes = match (self.image.elf_map(), self.image.pe()) {
+            (Some(map), _) => {
+                unforge_disasm::function_bytes_in(map, self.image.data(), start, size)?
+            }
+            (_, Some(pe)) => unforge_disasm::pe_function_bytes(pe, start, size)?,
+            _ => return None,
+        };
         Some(unforge_disasm::disassemble(
             bytes,
             start,
@@ -355,8 +355,8 @@ pub fn function_starts(analysis: &Analysis<'_>, fp: &Fingerprinter<'_, '_>) -> V
             known.insert(f.start, (f.size, f.name));
         }
     }
-    if let Some(elf) = analysis.elf() {
-        for s in starts::eh_frame_hdr_starts(elf, &fp.map) {
+    if let (Some(elf), Some(map)) = (analysis.elf(), analysis.image().elf_map()) {
+        for s in starts::eh_frame_hdr_starts(elf, map) {
             if known.len() >= unforge_analysis::MAX_FUNCTIONS {
                 break;
             }
@@ -481,11 +481,7 @@ impl Db {
     /// size (from its symbols), and the file's dependencies as sources.
     pub fn add_elf(&mut self, data: &[u8]) -> Result<AddStats, Error> {
         let analysis = Analysis::new(data).map_err(Error::Analysis)?;
-        let fpr = Fingerprinter::new(
-            analysis
-                .elf()
-                .ok_or(Error::UnsupportedMachine(analysis.image().machine()))?,
-        )?;
+        let fpr = Fingerprinter::new(analysis.image())?;
         let mut stats = AddStats::default();
         for f in analysis.functions() {
             let Some(name) = f.name else { continue };
@@ -647,11 +643,7 @@ fn status_of(entry: &Entry) -> MatchStatus {
 /// threshold. One result per start, sorted by address.
 pub fn match_elf(db: &Db, data: &[u8]) -> Result<Vec<FunctionMatch>, Error> {
     let analysis = Analysis::new(data).map_err(Error::Analysis)?;
-    let fpr = Fingerprinter::new(
-        analysis
-            .elf()
-            .ok_or(Error::UnsupportedMachine(analysis.image().machine()))?,
-    )?;
+    let fpr = Fingerprinter::new(analysis.image())?;
     let options = db.options();
     let mut out = Vec::new();
     for f in function_starts(&analysis, &fpr) {

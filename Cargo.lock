@@ -402,9 +402,11 @@ dependencies = [
 name = "unforge-sigs"
 version = "0.1.0"
 dependencies = [
+ "rustc-demangle",
  "unforge-analysis",
  "unforge-disasm",
  "unforge-elf",
+ "unforge-pe",
 ]
 
 [[package]]

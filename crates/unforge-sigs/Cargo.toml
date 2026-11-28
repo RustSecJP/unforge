@@ -13,3 +13,9 @@ unforge-disasm.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Hand-built PE images (synth) for tests/pe.rs, and demangling the names
+# of the linker maps of the real PE files.
+unforge-pe.workspace = true
+rustc-demangle.workspace = true

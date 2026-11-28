@@ -149,10 +149,7 @@ fn starts_only(data: &[u8]) -> Vec<FunctionMatch> {
     let Ok(analysis) = Analysis::new(data) else {
         return Vec::new();
     };
-    let Some(elf) = analysis.elf() else {
-        return Vec::new();
-    };
-    let Ok(fpr) = unforge_sigs::Fingerprinter::new(elf) else {
+    let Ok(fpr) = unforge_sigs::Fingerprinter::new(analysis.image()) else {
         return Vec::new();
     };
     function_starts(&analysis, &fpr)

@@ -137,11 +137,7 @@ fn bitness_of(elf: &ElfFile<'_>) -> Option<Bitness> {
 
 /// The decoder mode for an ELF file or a PE image.
 pub fn image_bitness(image: &Image<'_>) -> Option<Bitness> {
-    match (image.elf(), image.pe()) {
-        (Some(elf), _) => bitness_of(elf),
-        (_, Some(pe)) => bitness_for_pe(pe.machine()),
-        _ => None,
-    }
+    unforge_sigs::image_bitness(image)
 }
 
 /// The bytes of a function (see [`unforge_disasm::function_bytes_in`] and

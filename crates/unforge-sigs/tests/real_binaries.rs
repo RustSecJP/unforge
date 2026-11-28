@@ -32,7 +32,7 @@ fn strip(path: &Path) -> Option<Vec<u8>> {
 /// `b`'s own symbols as the truth (see the crate README for the rules).
 fn score(db: &Db, a_names: &BTreeMap<String, ()>, b: &[u8], b_stripped: &[u8]) -> (f64, f64) {
     let an = unforge_analysis::Analysis::new(b).unwrap();
-    let fpr = unforge_sigs::Fingerprinter::new(an.elf().unwrap()).unwrap();
+    let fpr = unforge_sigs::Fingerprinter::new(an.image()).unwrap();
     let truth: BTreeMap<u64, (String, u64)> = an
         .functions()
         .into_iter()
