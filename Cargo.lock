@@ -388,6 +388,7 @@ dependencies = [
  "unforge-analysis",
  "unforge-disasm",
  "unforge-elf",
+ "unforge-sigs",
 ]
 
 [[package]]
