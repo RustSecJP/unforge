@@ -379,6 +379,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-sigs"
+version = "0.1.0"
+dependencies = [
+ "unforge-analysis",
+ "unforge-disasm",
+ "unforge-elf",
+]
+
+[[package]]
 name = "unforge-testgen"
 version = "0.1.0"
 
