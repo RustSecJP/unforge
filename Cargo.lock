@@ -346,6 +346,7 @@ version = "0.1.0"
 dependencies = [
  "rustc-demangle",
  "unforge-elf",
+ "unforge-pe",
 ]
 
 [[package]]

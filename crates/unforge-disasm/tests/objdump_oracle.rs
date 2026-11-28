@@ -173,7 +173,7 @@ fn matches_objdump_on_own_executable() {
     };
     let data = std::fs::read(&exe).expect("read current_exe");
     let analysis = unforge_analysis::Analysis::new(&data).expect("parse current_exe");
-    let elf = analysis.elf();
+    let elf = analysis.elf().expect("an ELF file");
     let (text_start, text_end) = {
         let (_, sh) = elf.section_by_name(b".text").expect(".text");
         (sh.addr, sh.addr + sh.size)

@@ -186,7 +186,12 @@ pub fn report(data: &[u8]) -> Result<Report, Failure> {
         version: REPORT_VERSION,
         error: e.to_string(),
     })?;
-    let elf = analysis.elf();
+    let Some(elf) = analysis.elf() else {
+        return Err(Failure {
+            version: REPORT_VERSION,
+            error: "PE files are not supported yet".to_owned(),
+        });
+    };
 
     let mut functions = FunctionCounts::default();
     let mut function_rows = Vec::new();

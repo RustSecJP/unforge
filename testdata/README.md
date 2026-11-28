@@ -20,7 +20,7 @@ cargo test -p unforge-elf --test corpus_oracle
 
 ## Windows PE files (`pe/`)
 
-`pe/build.sh` builds real Rust PE files into `bin/pe/<target>/` for
+`pe/build.sh` builds real Rust PE files into `pe/bin/<target>/` for
 `x86_64-pc-windows-msvc` and `i686-pc-windows-msvc` (whichever std is
 installed: `rustup target add ...`), with nothing but rustup's own pieces:
 rust-lld links the official std rlibs, import libraries are generated with
@@ -37,7 +37,8 @@ Windows SDK or MinGW is needed. The files are never run.
 Each image comes with the linker's `/MAP` file (function addresses and
 mangled names: the ground truth, since the names are otherwise only in the
 PDB) and the `.pdb`. `cargo test -p unforge-pe --test real_files` and the
-PE tests of the other crates skip when `bin/pe/` does not exist.
+PE tests of the other crates skip when `pe/bin/` does not exist (it is not
+committed either).
 
 ## Programs (`src/`)
 

@@ -291,7 +291,9 @@ fn disasm(a: &DisasmArgs) -> ExitCode {
         Ok(an) => an,
         Err(e) => return report(&e),
     };
-    let elf = analysis.elf();
+    let Some(elf) = analysis.elf() else {
+        return report(&"disassembling PE files is not supported yet");
+    };
     let header = elf.header();
     let Some(bitness) = unforge_disasm::bitness_for(header.machine, header.class) else {
         return report(&format!(

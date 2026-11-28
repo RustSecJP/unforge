@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use unforge_pe::{ImportKind, PeFile};
 
 fn dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin/pe")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/pe/bin")
 }
 
 /// The files of the corpus: (path of the image, its map).

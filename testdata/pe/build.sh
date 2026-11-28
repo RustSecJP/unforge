@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds real Rust PE files (Windows .exe / .dll) into testdata/bin/pe/
+# Builds real Rust PE files (Windows .exe / .dll) into testdata/pe/bin/
 # without Visual Studio, the Windows SDK or MinGW.
 #
 # Needs only what rustup provides:
@@ -27,7 +27,7 @@ export LC_ALL=C TZ=UTC
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-OUT="$REPO/testdata/bin/pe"
+OUT="$HERE/bin"
 FORCE=0
 [[ "${1:-}" == "--force" ]] && FORCE=1
 

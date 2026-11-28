@@ -355,11 +355,13 @@ pub fn function_starts(analysis: &Analysis<'_>, fp: &Fingerprinter<'_, '_>) -> V
             known.insert(f.start, (f.size, f.name));
         }
     }
-    for s in starts::eh_frame_hdr_starts(analysis.elf(), &fp.map) {
-        if known.len() >= unforge_analysis::MAX_FUNCTIONS {
-            break;
+    if let Some(elf) = analysis.elf() {
+        for s in starts::eh_frame_hdr_starts(elf, &fp.map) {
+            if known.len() >= unforge_analysis::MAX_FUNCTIONS {
+                break;
+            }
+            known.entry(s).or_insert((0, None));
         }
-        known.entry(s).or_insert((0, None));
     }
     // Symbol-sized ranges, sorted by start, for "inside a known function".
     let sized: Vec<(u64, u64)> = known
@@ -479,7 +481,11 @@ impl Db {
     /// size (from its symbols), and the file's dependencies as sources.
     pub fn add_elf(&mut self, data: &[u8]) -> Result<AddStats, Error> {
         let analysis = Analysis::new(data).map_err(Error::Analysis)?;
-        let fpr = Fingerprinter::new(analysis.elf())?;
+        let fpr = Fingerprinter::new(
+            analysis
+                .elf()
+                .ok_or(Error::UnsupportedMachine(analysis.image().machine()))?,
+        )?;
         let mut stats = AddStats::default();
         for f in analysis.functions() {
             let Some(name) = f.name else { continue };
@@ -641,7 +647,11 @@ fn status_of(entry: &Entry) -> MatchStatus {
 /// threshold. One result per start, sorted by address.
 pub fn match_elf(db: &Db, data: &[u8]) -> Result<Vec<FunctionMatch>, Error> {
     let analysis = Analysis::new(data).map_err(Error::Analysis)?;
-    let fpr = Fingerprinter::new(analysis.elf())?;
+    let fpr = Fingerprinter::new(
+        analysis
+            .elf()
+            .ok_or(Error::UnsupportedMachine(analysis.image().machine()))?,
+    )?;
     let options = db.options();
     let mut out = Vec::new();
     for f in function_starts(&analysis, &fpr) {

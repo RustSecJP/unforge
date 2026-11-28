@@ -75,7 +75,7 @@ fn main() {
 
     let b_data = read(b_sym);
     let b_an = unforge_analysis::Analysis::new(&b_data).expect("B");
-    let b_fpr = Fingerprinter::new(b_an.elf()).expect("B");
+    let b_fpr = Fingerprinter::new(b_an.elf().expect("ELF")).expect("B");
     let truth: BTreeMap<u64, (String, u64)> = b_an
         .functions()
         .into_iter()
@@ -142,7 +142,7 @@ fn main() {
         }
         shown += 1;
         let a_an = unforge_analysis::Analysis::new(&a_data[k]).expect("A");
-        let a_fpr = Fingerprinter::new(a_an.elf()).expect("A");
+        let a_fpr = Fingerprinter::new(a_an.elf().expect("ELF")).expect("A");
         let la = a_fpr.normalized_lines(a_start, a_size);
         let lb = b_fpr.normalized_lines(start, *size);
         if la == lb {

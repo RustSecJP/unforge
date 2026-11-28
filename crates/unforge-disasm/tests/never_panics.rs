@@ -63,7 +63,9 @@ fn whole_file(data: &[u8]) {
     let Ok(analysis) = unforge_analysis::Analysis::new(data) else {
         return;
     };
-    let elf = analysis.elf();
+    let Some(elf) = analysis.elf() else {
+        return;
+    };
     for f in analysis.functions().iter().take(2000) {
         for size in [f.size, 0, u64::MAX] {
             if let Some(v) = disassemble_function(elf, f.start, size, 500) {

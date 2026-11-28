@@ -6,7 +6,7 @@
 //!
 //! | path | origin |
 //! |---|---|
-//! | `/rustc/<40 hex commit>/library/<crate>/...` | the standard library of the rustc release with that commit (official builds remap their source directory to this) |
+//! | `/rustc/<40 hex commit>/library/<crate>/...` | the standard library of the rustc release with that commit (official builds remap their source directory to this; Windows builds continue with `\`: `/rustc/<commit>/library\core\src\...`) |
 //! | `/rust/deps/<crate>-<version>/...` | a crate vendored by the standard library (current official builds) |
 //! | `/cargo/registry/src/<index>/<crate>-<version>/...` with a standard-library crate | the same, in older official builds |
 //! | `.../registry/src/<index>/<crate>-<version>/...` (`/` or `\`) | a crates.io dependency, unpacked by cargo into `$CARGO_HOME` |
@@ -140,12 +140,12 @@ fn is_semver(s: &str) -> bool {
 }
 
 /// The rustc commit hash in `/rustc/<40 lowercase hex>/`, if `path` starts
-/// with one.
+/// with one (either separator after the hash).
 pub fn rustc_commit(path: &str) -> Option<&str> {
     let rest = path.strip_prefix("/rustc/")?;
     let hash = rest.get(..40)?;
     let ok = hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        && rest.as_bytes().get(40) == Some(&b'/');
+        && matches!(rest.as_bytes().get(40), Some(b'/' | b'\\'));
     ok.then_some(hash)
 }
 
@@ -184,11 +184,12 @@ pub fn scan_path_clues(data: &[u8], mut found: impl FnMut(PathClue)) {
             continue;
         }
         if let Some(t) = data.get(at..)
-            && t.starts_with(b"rustc/")
+            && t.starts_with(b"rustc")
+            && matches!(t.get(5), Some(b'/' | b'\\'))
         {
             if let Some(h) = t.get(6..46) {
                 let ok = h.iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-                    && t.get(46) == Some(&b'/');
+                    && matches!(t.get(46), Some(b'/' | b'\\'));
                 if ok {
                     if let Ok(commit) = std::str::from_utf8(h) {
                         found(PathClue::Rustc {
@@ -312,6 +313,34 @@ mod tests {
                     version: "1.0.145".into()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn scan_windows_paths() {
+        let data = b"/rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library\\core\\src\\str\\mod.rs\
+            \\rustc\\0123456789abcdef0123456789abcdef01234567\\library\\std\\src\\rt.rs\
+            C:\\Users\\a\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\aes-0.8.4\\src\\lib.rs";
+        let mut got = Vec::new();
+        scan_path_clues(data, |c| got.push(c));
+        assert_eq!(
+            got,
+            vec![
+                PathClue::Rustc {
+                    commit: "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4".into()
+                },
+                PathClue::Rustc {
+                    commit: "0123456789abcdef0123456789abcdef01234567".into()
+                },
+                PathClue::Registry {
+                    name: "aes".into(),
+                    version: "0.8.4".into()
+                },
+            ]
+        );
+        assert_eq!(
+            rustc_commit("/rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\\library"),
+            Some("b940084d7eb6a299eb4bfeb8e34901bc051e7ac4")
         );
     }
 
