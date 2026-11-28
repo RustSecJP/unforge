@@ -9,7 +9,8 @@
 //   - control flow: `if c {`, `while c {`, `loop { ..; if !(c) { break; } }`, `loop {`
 //   - bitwise not:  `!x`
 //   - slices:       a (pointer, length) parameter pair that is indexed and
-//                   bounds-checked becomes `v: &[T]`, `v[i]`, `v.len()`
+//                   bounds-checked becomes `v: &[T]`, `v[i]`, `v.len()`; a byte
+//                   slice compared with characters becomes `s: &str`, `s.as_bytes()[i]`
 // What it does not do (yet): iterators and Option/Result. Elsewhere the
 // output reads like unsafe Rust over raw pointers, which is what the
 // machine code does.
@@ -37,6 +38,7 @@ class PrintRust : public PrintC {
     const Symbol *ptr;
     const Symbol *len;
     Datatype *elem;
+    bool text;  ///< bytes compared with printable characters: shown as `&str`
   };
   /// A LOAD that reads an element of a slice: `ptr[index]`.
   struct SliceLoad {

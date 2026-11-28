@@ -207,7 +207,27 @@ void PrintRust::findSlices(const Funcdata *fd) {
       loads[op] = SliceLoad{ptr, index, cindex};
     }
     if (!ok || !lenCompared || loads.empty()) continue;
-    slices.push_back(SliceParam{ptr, len, elem});
+    // Text: an element read is compared with a printable ASCII constant.
+    bool text = false;
+    if (esize == 1) {
+      for (auto &l : loads) {
+        const Varnode *v = l.first->getOut();
+        list<PcodeOp *>::const_iterator d;
+        for (d = v->beginDescend(); !text && d != v->endDescend(); ++d) {
+          const PcodeOp *use = *d;
+          // look through a sign/zero extension of the byte
+          if ((use->code() == CPUI_INT_ZEXT || use->code() == CPUI_INT_SEXT) && use->getOut() != (Varnode *)0 &&
+              use->getOut()->beginDescend() != use->getOut()->endDescend())
+            use = *use->getOut()->beginDescend();
+          if (!isComparison(use->code())) continue;
+          for (int4 k = 0; k < use->numInput(); ++k) {
+            const Varnode *c = use->getIn(k);
+            if (c->isConstant() && c->getOffset() >= 0x20 && c->getOffset() < 0x7f) text = true;
+          }
+        }
+      }
+    }
+    slices.push_back(SliceParam{ptr, len, elem, text});
     sliceLoads.insert(loads.begin(), loads.end());
     ++i;  // the length is taken
   }
@@ -240,8 +260,10 @@ void PrintRust::opLoad(const PcodeOp *op) {
     return;
   }
   const SliceLoad &l = it->second;
+  const SliceParam *s = sliceOfPtr(l.ptr);
+  string base = l.ptr->getDisplayName() + (s != (const SliceParam *)0 && s->text ? ".as_bytes()" : "");
   pushOp(&subscript, op);
-  pushAtom(Atom(l.ptr->getDisplayName(), vartoken, EmitMarkup::param_color, op, (const Varnode *)0));
+  pushAtom(Atom(base, vartoken, EmitMarkup::param_color, op, (const Varnode *)0));
   if (l.index != (const Varnode *)0)
     pushVn(l.index, op, mods);
   else
@@ -302,7 +324,7 @@ void PrintRust::emitFunctionDeclaration(const Funcdata *fd) {
       int4 vid = emit->beginVarDecl(sym);
       emit->print(sym->getDisplayName(), EmitMarkup::param_color);
       emit->print(": ");
-      emit->print("&[" + rustType(slice->elem) + "]", EmitMarkup::type_color);
+      emit->print(slice->text ? "&str" : "&[" + rustType(slice->elem) + "]", EmitMarkup::type_color);
       emit->endVarDecl(vid);
     } else if (sym != (Symbol *)0)
       emitVarDecl(sym);
