@@ -30,8 +30,14 @@ fn main() {
             let root = std::path::Path::new(&root);
             build.include(root.join("include"));
             println!("cargo:rustc-link-search=native={}", root.join("lib").display());
-            if let Some(n) = ["zlib", "zs", "zlibstatic", "z"].iter().find(|n| root.join("lib").join(format!("{n}.lib")).exists()) {
-                zlib = (*n).to_owned();
+            // Any z*.lib in the folder (zlib.lib, zs.lib, zlibstatic.lib, ...).
+            let found = std::fs::read_dir(root.join("lib")).into_iter().flatten().flatten().find_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                let stem = name.strip_suffix(".lib")?;
+                (stem.starts_with('z') && !stem.ends_with('d')).then(|| stem.to_owned())
+            });
+            if let Some(n) = found {
+                zlib = n;
             }
         }
     }
