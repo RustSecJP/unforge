@@ -20,7 +20,7 @@ fn main() {
         .flag_if_supported("-Wno-deprecated-copy")
         .warnings(false)
         .files(&files);
-    // The zlib library's name differs between builds (zlib 1.4 static: zs.lib).
+    // The zlib library's name differs between builds (vcpkg's zlib 1.4 static: libzs.lib).
     let mut zlib = if msvc { "zlib" } else { "z" }.to_owned();
     if msvc {
         // Ghidra's own Windows build: _WINDOWS picks the Win32 file APIs.
@@ -30,11 +30,11 @@ fn main() {
             let root = std::path::Path::new(&root);
             build.include(root.join("include"));
             println!("cargo:rustc-link-search=native={}", root.join("lib").display());
-            // Any z*.lib in the folder (zlib.lib, zs.lib, zlibstatic.lib, ...).
+            // Any z*.lib or libz*.lib in the folder (zlib.lib, libzs.lib, zlibstatic.lib, ...).
             let found = std::fs::read_dir(root.join("lib")).into_iter().flatten().flatten().find_map(|e| {
                 let name = e.file_name().into_string().ok()?;
                 let stem = name.strip_suffix(".lib")?;
-                (stem.starts_with('z') && !stem.ends_with('d')).then(|| stem.to_owned())
+                ((stem.starts_with('z') || stem.starts_with("libz")) && !stem.ends_with('d')).then(|| stem.to_owned())
             });
             if let Some(n) = found {
                 zlib = n;
