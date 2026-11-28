@@ -110,3 +110,5 @@ Mekiki is built on **unforge**, a set of Rust libraries in this repository that 
 MIT or Apache-2.0, at your option ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)). The decompiler in `mekiki/decompiler/ghidra/` and the processor files in `mekiki/decompiler/specs/` come from [Ghidra](https://github.com/NationalSecurityAgency/ghidra) and are under Apache-2.0 ([LICENSE](mekiki/decompiler/LICENSE-APACHE-2.0), [NOTICE](mekiki/decompiler/NOTICE)).
 
 RustSecJP is an unofficial community, not affiliated with the Rust Project or Rust Foundation.
+
+Made by [hina-kura49](https://hina-kura49.github.io/portfolio/) · [GitHub](https://github.com/hina-kura49) · [X](https://x.com/hkurashina49) · [Instagram](https://www.instagram.com/hina_kura49/) · [Facebook](https://www.facebook.com/profile.php?id=61597175063829) · [RustSecJP](https://github.com/RustSecJP)

@@ -106,7 +106,7 @@ details p { margin: 10px 0 0; color: var(--ink-2); }
 .foot-in { display: grid; grid-template-columns: auto 1fr; gap: 10px 24px; align-items: center; }
 .foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .foot-brand span { font-weight: 400; color: var(--ink-3); }
-.foot nav { display: flex; flex-wrap: wrap; gap: 20px; justify-content: flex-end; }
+.foot nav { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: flex-end; }
 .foot nav a { color: var(--ink-2); text-decoration: none; font-size: 15px; }
 .foot nav a:hover { color: var(--ink); }
 .fine { grid-column: 1 / -1; margin: 8px 0 0; color: var(--ink-3); font-size: 13.5px; }

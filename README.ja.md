@@ -110,3 +110,5 @@ Mekiki の中身は、このリポジトリにある Rust のライブラリ群 
 MIT または Apache-2.0 のどちらかを選んで利用できます（[LICENSE-MIT](LICENSE-MIT)、[LICENSE-APACHE](LICENSE-APACHE)）。`mekiki/decompiler/ghidra/` の逆コンパイラと `mekiki/decompiler/specs/` のプロセッサのファイルは [Ghidra](https://github.com/NationalSecurityAgency/ghidra) から写したもので、Apache-2.0 です（[LICENSE](mekiki/decompiler/LICENSE-APACHE-2.0)、[NOTICE](mekiki/decompiler/NOTICE)）。
 
 RustSecJP は非公式のコミュニティです。Rust Project、Rust Foundation とは提携していません。
+
+作った人: [hina-kura49](https://hina-kura49.github.io/portfolio/) · [GitHub](https://github.com/hina-kura49) · [X](https://x.com/hkurashina49) · [Instagram](https://www.instagram.com/hina_kura49/) · [Facebook](https://www.facebook.com/profile.php?id=61597175063829) · [RustSecJP](https://github.com/RustSecJP)
