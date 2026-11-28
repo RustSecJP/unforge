@@ -1,0 +1,16 @@
+[package]
+name = "mekiki-decomp"
+description = "Ghidra's C++ decompiler as a helper process for Mekiki, without Java"
+version = "1.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# Not in the unforge workspace (like mekiki/src-tauri).
+[workspace]
+
+[build-dependencies]
+cc = { version = "1", features = ["parallel"] }
+
+[profile.release]
+opt-level = 2

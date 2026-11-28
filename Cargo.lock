@@ -78,6 +78,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced-x86"
+version = "1.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c23ad4d19dca41180e835ef6fbd2c1ee655777eca086ad80dd517e0513322879"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -322,23 +331,28 @@ checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "unforge"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "object 0.41.0",
+ "unforge-analysis",
+ "unforge-disasm",
  "unforge-elf",
+ "unforge-pe",
+ "unforge-sigs",
 ]
 
 [[package]]
 name = "unforge-analysis"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rustc-demangle",
  "unforge-elf",
+ "unforge-pe",
 ]
 
 [[package]]
 name = "unforge-bench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "gimli",
  "object 0.41.0",
@@ -349,8 +363,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-disasm"
+version = "1.0.0"
+dependencies = [
+ "iced-x86",
+ "unforge-analysis",
+ "unforge-elf",
+ "unforge-pe",
+]
+
+[[package]]
 name = "unforge-elf"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dhat",
  "goblin",
@@ -359,8 +383,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "unforge-pe"
+version = "1.0.0"
+
+[[package]]
+name = "unforge-report"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unforge-analysis",
+ "unforge-disasm",
+ "unforge-elf",
+ "unforge-pe",
+ "unforge-sigs",
+]
+
+[[package]]
+name = "unforge-sigs"
+version = "1.0.0"
+dependencies = [
+ "rustc-demangle",
+ "unforge-analysis",
+ "unforge-disasm",
+ "unforge-elf",
+ "unforge-pe",
+]
+
+[[package]]
 name = "unforge-testgen"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "unicode-ident"

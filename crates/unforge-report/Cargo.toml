@@ -1,0 +1,20 @@
+[package]
+name = "unforge-report"
+description = "What Mekiki (the desktop UI of unforge) shows about a file, as plain data (part of unforge)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+unforge-elf.workspace = true
+unforge-pe.workspace = true
+unforge-analysis.workspace = true
+unforge-disasm.workspace = true
+unforge-sigs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,6 +1,9 @@
 //! `unforge`: read Rust binaries as Rust.
 //!
-//! Stage 1 only exposes the ELF loader: `unforge elf <file>`.
+//! Commands: `unforge elf <file>` (the ELF loader), `unforge pe <file>`
+//! (the PE reader, see `pe.rs`), `unforge disasm <file>` (x86 / x86-64
+//! disassembly of recovered functions, ELF or PE) and `unforge sig
+//! build|match` (function signatures, see `sig.rs`).
 //!
 //! This binary must never panic on any input or environment: no `unwrap`,
 //! `expect`, or slice indexing on data derived from the file, and every write
@@ -21,15 +24,18 @@
 )]
 
 mod args;
+mod disasm;
 mod names;
+mod pe;
 mod print;
+mod sig;
 
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
-use args::{Command, ElfArgs, HELP};
+use args::{Command, DisasmArgs, ElfArgs, HELP, PeArgs, SigBuildArgs, SigMatchArgs};
 
 /// Exit status for I/O and parse errors.
 const EXIT_FAILURE: u8 = 1;
@@ -93,7 +99,131 @@ fn main() -> ExitCode {
             write_stdout(concat!("unforge ", env!("CARGO_PKG_VERSION"), "\n").as_bytes())
         }
         Command::Elf(a) => elf(&a),
+        Command::Pe(a) => pe_command(&a),
+        Command::Disasm(a) => disasm(&a),
+        Command::SigBuild(a) => sig_build(&a),
+        Command::SigMatch(a) => sig_match(&a),
     }
+}
+
+/// `unforge sig build`: adds every input (ELF files with symbols, or
+/// databases, which are merged) and writes the database. Exits with
+/// status 1, writing nothing, if any input cannot be used.
+fn sig_build(a: &SigBuildArgs) -> ExitCode {
+    let mut db = unforge_sigs::Db::new(a.options);
+    let mut err = io::stderr().lock();
+    for path in &a.inputs {
+        let report = |e: &dyn std::fmt::Display| {
+            let _ = writeln!(io::stderr(), "unforge: {}: {e}", path.display());
+            ExitCode::from(EXIT_FAILURE)
+        };
+        let data = match read_input(path) {
+            Ok(d) => d,
+            Err(e) => return report(&e),
+        };
+        if data.starts_with(unforge_sigs::db::MAGIC) {
+            match unforge_sigs::Db::from_bytes(&data) {
+                Ok(other) => {
+                    let _ = writeln!(
+                        err,
+                        "unforge: {}: note: merging {} fingerprints",
+                        path.display(),
+                        other.len()
+                    );
+                    db.merge(other);
+                }
+                Err(e) => return report(&e),
+            }
+            continue;
+        }
+        match db.add_elf(&data) {
+            Ok(s) => {
+                let _ = writeln!(
+                    err,
+                    "unforge: {}: note: {} of {} named functions added \
+                     ({} below the size threshold, {} without readable code)",
+                    path.display(),
+                    s.added,
+                    s.named,
+                    s.too_small,
+                    s.unreadable
+                );
+                if s.named == 0 {
+                    let _ = writeln!(
+                        err,
+                        "unforge: {}: warning: no named functions (stripped?)",
+                        path.display()
+                    );
+                }
+            }
+            Err(e) => return report(&e),
+        }
+    }
+    let bytes = db.to_bytes();
+    if let Err(e) = std::fs::write(&a.output, &bytes) {
+        let _ = writeln!(err, "unforge: {}: {e}", a.output.display());
+        return ExitCode::from(EXIT_FAILURE);
+    }
+    let _ = writeln!(
+        err,
+        "unforge: {}: note: {} fingerprints, {} bytes",
+        a.output.display(),
+        db.len(),
+        bytes.len()
+    );
+    ExitCode::SUCCESS
+}
+
+/// `unforge sig match`: see `sig.rs` for the output format.
+fn sig_match(a: &SigMatchArgs) -> ExitCode {
+    let fail = |p: &Path, e: &dyn std::fmt::Display| {
+        let _ = writeln!(io::stderr(), "unforge: {}: {e}", p.display());
+        ExitCode::from(EXIT_FAILURE)
+    };
+    let db = match read_input(&a.db) {
+        Ok(d) => match unforge_sigs::Db::from_bytes(&d) {
+            Ok(db) => db,
+            Err(e) => return fail(&a.db, &e),
+        },
+        Err(e) => return fail(&a.db, &e),
+    };
+    let data = match read_input(&a.path) {
+        Ok(d) => d,
+        Err(e) => return fail(&a.path, &e),
+    };
+    let matches = match unforge_sigs::match_elf(&db, &data) {
+        Ok(m) => m,
+        Err(e) => return fail(&a.path, &e),
+    };
+    let mut out = BufWriter::new(io::stdout().lock());
+    if let Err(e) = sig::print_matches(&mut out, &matches).and_then(|()| out.flush()) {
+        return stdout_error(&e);
+    }
+    let mut err = io::stderr().lock();
+    let summary = sig::Summary::of(&matches);
+    let _ = writeln!(err, "unforge: {}: note: {summary}", a.path.display());
+    if let Ok(missing) = unforge_sigs::uncovered_dependencies(&db, &data)
+        && !missing.is_empty()
+    {
+        let shown: Vec<String> = missing
+            .iter()
+            .take(sig::MAX_UNCOVERED_SHOWN)
+            .map(|m| disasm::show_name(m))
+            .collect();
+        let more = missing.len().saturating_sub(shown.len());
+        let _ = writeln!(
+            err,
+            "unforge: {}: note: not covered by the database: {}{}",
+            a.path.display(),
+            shown.join(", "),
+            if more > 0 {
+                format!(" and {more} more")
+            } else {
+                String::new()
+            }
+        );
+    }
+    ExitCode::SUCCESS
 }
 
 fn write_stdout(bytes: &[u8]) -> ExitCode {
@@ -114,6 +244,45 @@ fn stdout_error(e: &io::Error) -> ExitCode {
     }
     let _ = writeln!(io::stderr(), "unforge: stdout: {e}");
     ExitCode::from(EXIT_FAILURE)
+}
+
+/// `unforge pe`: the PE reader's view of the file, diagnostics on stderr
+/// (`note:` / `warning:`), like `unforge elf`.
+fn pe_command(a: &PeArgs) -> ExitCode {
+    let report = |e: &dyn std::fmt::Display| {
+        let _ = writeln!(io::stderr(), "unforge: {}: {e}", a.path.display());
+        ExitCode::from(EXIT_FAILURE)
+    };
+    let data = match read_input(&a.path) {
+        Ok(d) => d,
+        Err(e) => return report(&e),
+    };
+    let file = match unforge_pe::PeFile::parse(&data) {
+        Ok(f) => f,
+        Err(e) => return report(&e),
+    };
+    let mut warned = false;
+    {
+        let mut err = io::stderr().lock();
+        for d in file.diagnostics() {
+            let label = match d.severity {
+                unforge_pe::Severity::Info => "note",
+                unforge_pe::Severity::Warning => "warning",
+                _ => "warning: would not load",
+            };
+            warned |= d.severity >= unforge_pe::Severity::Warning;
+            let _ = writeln!(err, "unforge: {}: {label}: {d}", a.path.display());
+        }
+    }
+    let mut out = BufWriter::new(io::stdout().lock());
+    let result = pe::print(&mut out, &file, a.show).and_then(|()| out.flush());
+    let failed = a.strict && warned;
+    match result {
+        Ok(()) if failed => ExitCode::from(EXIT_FAILURE),
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe && failed => ExitCode::from(EXIT_FAILURE),
+        Err(e) => stdout_error(&e),
+    }
 }
 
 fn elf(a: &ElfArgs) -> ExitCode {
@@ -143,6 +312,106 @@ fn elf(a: &ElfArgs) -> ExitCode {
     }
     // Dropping `p` flushes the BufWriter again; after a broken pipe that flush
     // fails silently (BufWriter's Drop ignores errors), which is what we want.
+}
+
+/// `unforge disasm`: see `disasm.rs` for the output format.
+///
+/// Exits with status 1 when the file cannot be read, is not for x86, when
+/// no function matches `--function`, or when nothing could be disassembled
+/// (the address is not backed by file bytes). ELF diagnostics are not
+/// printed here; `unforge elf` reports them.
+fn disasm(a: &DisasmArgs) -> ExitCode {
+    let report = |e: &dyn std::fmt::Display| {
+        let _ = writeln!(io::stderr(), "unforge: {}: {e}", a.path.display());
+        ExitCode::from(EXIT_FAILURE)
+    };
+    let data = match read_input(&a.path) {
+        Ok(d) => d,
+        Err(e) => return report(&e),
+    };
+    let analysis = match unforge_analysis::Analysis::new(&data) {
+        Ok(an) => an,
+        Err(e) => return report(&e),
+    };
+    let image = analysis.image();
+    let Some(bitness) = unforge_sigs::image_bitness(image) else {
+        let m = image.machine();
+        let what = match image.format() {
+            unforge_analysis::Format::Elf => names::machine(m),
+            _ => format!("PE machine {m:#x}"),
+        };
+        return report(&format!(
+            "cannot disassemble code for {what}: only x86 and x86-64 are supported"
+        ));
+    };
+    let funcs = analysis.functions();
+    let (jobs, total) = disasm::jobs(&a.target, image.entry().unwrap_or(0), &funcs);
+    if let args::DisasmTarget::Function(pattern) = &a.target {
+        if jobs.is_empty() {
+            return report(&format!(
+                "no recovered function name contains '{}'",
+                names::escape(pattern.as_bytes())
+            ));
+        }
+        if total > jobs.len() {
+            let _ = writeln!(
+                io::stderr(),
+                "unforge: {}: note: {total} functions match; showing the first {}",
+                a.path.display(),
+                jobs.len()
+            );
+        }
+    }
+    let mut by_start = disasm::name_index(&funcs);
+    // PE: a call through an IAT slot (`call [rip+slot]`) points at the
+    // slot; name it after the import.
+    let iat: Vec<(u64, String)> = image.pe().map_or_else(Vec::new, |pe| {
+        pe.iat_names()
+            .into_iter()
+            .map(|(slot, n)| (pe.image_base().wrapping_add(u64::from(slot)), n))
+            .collect()
+    });
+    for (slot, n) in &iat {
+        by_start.entry(*slot).or_insert(n.as_str());
+    }
+    let mut out = BufWriter::new(io::stdout().lock());
+    let mut printed = 0usize;
+    let mut unmapped = 0usize;
+    for (k, job) in jobs.iter().enumerate() {
+        let bytes = match (image.elf_map(), image.pe()) {
+            (Some(map), _) => unforge_disasm::function_bytes_in(map, &data, job.start, job.size),
+            (_, Some(pe)) => unforge_disasm::pe_function_bytes(pe, job.start, job.size),
+            _ => None,
+        };
+        let Some(bytes) = bytes else {
+            unmapped += 1;
+            let _ = writeln!(
+                io::stderr(),
+                "unforge: {}: warning: {:#x} is not backed by file bytes",
+                a.path.display(),
+                job.start
+            );
+            continue;
+        };
+        let insns = unforge_disasm::disassemble_function_bytes(
+            bytes, job.start, job.size, bitness, a.count,
+        );
+        let result = (if k > 0 { writeln!(out) } else { Ok(()) }).and_then(|()| {
+            disasm::print_function(&mut out, job, bytes, &insns, bitness, &by_start)
+        });
+        if let Err(e) = result {
+            return stdout_error(&e);
+        }
+        printed += 1;
+    }
+    if let Err(e) = out.flush() {
+        return stdout_error(&e);
+    }
+    if printed == 0 && unmapped > 0 {
+        ExitCode::from(EXIT_FAILURE)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// Print the file's diagnostics on stderr, before the listing:

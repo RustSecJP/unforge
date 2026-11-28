@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mekiki — see what is inside a Rust binary</title>
+<meta name="description" content="Mekiki is a free desktop app that opens a Rust binary and shows its crates, versions, functions and code. Disassembly and decompiling built in. Runs locally on macOS, Linux and Windows.">
+<link rel="canonical" href="https://rustsecjp.github.io/mekiki/">
+<link rel="icon" href="mekiki.svg" type="image/svg+xml">
+<meta name="theme-color" content="#c58a00">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Mekiki">
+<meta property="og:title" content="Mekiki — see what is inside a Rust binary">
+<meta property="og:description" content="Open a Rust binary and see its crates, versions, functions and code. Free desktop app for macOS, Linux and Windows. Everything runs locally.">
+<meta property="og:url" content="https://rustsecjp.github.io/mekiki/">
+<meta property="og:image" content="https://rustsecjp.github.io/mekiki/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Mekiki: see what is inside a Rust binary">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mekiki — see what is inside a Rust binary">
+<meta name="twitter:description" content="Open a Rust binary and see its crates, versions, functions and code. Free, open source, runs locally.">
+<meta name="twitter:image" content="https://rustsecjp.github.io/mekiki/og.png">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Mekiki","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"1.0.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://rustsecjp.github.io/mekiki/","downloadUrl":"https://github.com/RustSecJP/mekiki/releases/latest","license":"https://github.com/RustSecJP/mekiki#license"}
+</script>
+</head>
+<body>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><img src="mekiki.svg" alt="" width="28" height="28"> Mekiki</a>
+    <nav class="nav-links">
+      <a href="#use">Use cases</a>
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+      <a class="gh" href="https://github.com/RustSecJP/mekiki" aria-label="Mekiki on GitHub"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span></a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap hero-in">
+      <div class="hero-text">
+        <p class="eyebrow">Free desktop app · v1.0</p>
+        <h1>See what is inside a&nbsp;Rust&nbsp;binary.</h1>
+        <p class="lead">Open a Rust program and Mekiki shows you which crates went into it, their versions, every function, and its code, disassembled and decompiled. Nothing leaves your computer.</p>
+        <div class="cta">
+          <a id="dl" class="btn btn-primary" href="https://github.com/RustSecJP/mekiki/releases/latest">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1ZM5 19a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2H5Z"/></svg>
+            <span id="dl-label">Download Mekiki</span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/RustSecJP/mekiki">View on GitHub</a>
+        </div>
+        <p class="other" id="other">
+          Other downloads:
+          <a href="https://github.com/RustSecJP/mekiki/releases/latest/download/Mekiki-macos-universal.dmg">macOS</a> ·
+          <a href="https://github.com/RustSecJP/mekiki/releases/latest/download/Mekiki-linux-x86_64.AppImage">Linux AppImage</a> ·
+          <a href="https://github.com/RustSecJP/mekiki/releases/latest/download/Mekiki-linux-amd64.deb">.deb</a> ·
+          <a href="https://github.com/RustSecJP/mekiki/releases/latest/download/Mekiki-windows-x64-setup.exe">Windows</a> ·
+          <a href="https://github.com/RustSecJP/mekiki/releases/latest">all files</a>
+        </p>
+      </div>
+      <div class="hero-media">
+        <video src="media/mekiki.mp4" poster="media/poster.jpg" autoplay muted loop playsinline preload="metadata" width="1920" height="1080" aria-label="Mekiki in action: opening a Rust binary, browsing crates and decompiling a function"></video>
+      </div>
+    </div>
+  </section>
+
+  <section class="strip">
+    <div class="wrap strip-in">
+      <div><b>Crates &amp; versions</b><span>from the binary alone</span></div>
+      <div><b>Disassembly + decompiler</b><span>Ghidra's, built in, no Java</span></div>
+      <div><b>ELF &amp; PE</b><span>Linux and Windows files, x86-64 / x86</span></div>
+      <div><b>100% local</b><span>never uploads, never runs the file</span></div>
+    </div>
+  </section>
+
+  <section id="use" class="section">
+    <div class="wrap">
+      <h2>When you'll use it</h2>
+      <div class="cards">
+        <article class="card">
+          <div class="num">01</div>
+          <h3>A strange binary turned up on a server</h3>
+          <p>Before anyone runs it, open it. Which crates does it pull in: networking, crypto, process control? What strings and panic messages does it carry? What does <code>main</code> actually do? A first answer in minutes, without a sandbox.</p>
+        </article>
+        <article class="card">
+          <div class="num">02</div>
+          <h3>Checking what a binary really ships</h3>
+          <p>Your SBOM and <code>Cargo.lock</code> say one thing; the release binary is what users get. See every crate and version compiled in, and the exact compiler commit that built it, from the file alone. Handy for supply-chain reviews and third-party tools you didn't build.</p>
+        </article>
+        <article class="card">
+          <div class="num">03</div>
+          <h3>Analyzing Rust malware</h3>
+          <p>In general-purpose tools, Rust malware is a wall of mangled names and inlined standard library. Mekiki separates the author's code from crates and <code>std</code>, names functions in stripped files with fingerprints, and shows Windows imports by name.</p>
+        </article>
+        <article class="card">
+          <div class="num">04</div>
+          <h3>Learning how Rust compiles</h3>
+          <p>Write ten lines, build them, open the result. See what <code>Option</code>, iterators, <code>?</code> and generics become, function by function, with the source panic locations written beside the code.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="section alt">
+    <div class="wrap">
+      <h2>Features</h2>
+      <div class="features">
+        <div class="feat"><h3>Symbol Tree by crate</h3><p>Functions grouped into your program, each crate with its version, the standard library, and unknown.</p></div>
+        <div class="feat"><h3>Listing</h3><p>Code in address order with disassembly, function headers and clickable references. Back and forward like a browser.</p></div>
+        <div class="feat"><h3>Decompile</h3><p>Readable Rust-style or C-style code for any function, with panic locations and string contents noted. Ghidra's decompiler, built in.</p></div>
+        <div class="feat"><h3>Inspector</h3><p>Details for whatever you select. Crates link straight to crates.io and docs.rs.</p></div>
+        <div class="feat"><h3>Tables</h3><p>Functions, Crates and Warnings, sortable and filterable. Odd file layouts are reported, not hidden.</p></div>
+        <div class="feat"><h3>Go to anything</h3><p>Press <kbd>G</kbd> and type an address, a function, a section or a crate.</p></div>
+        <div class="feat"><h3>Fingerprints</h3><p>Name functions in stripped binaries with fingerprint databases, or add files you trust to your own.</p></div>
+        <div class="feat"><h3>Windows files too</h3><p>PE <code>.exe</code> and <code>.dll</code>, with imports shown by name in the code: <code>kernel32.dll!CreateFileW</code>.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="section">
+    <div class="wrap two">
+      <div>
+        <h2>How it works</h2>
+        <p>Mekiki is built on <b>unforge</b>, a set of Rust libraries that read ELF and PE files without panicking, even when the file is broken or made hostile on purpose. unforge finds the functions and works out which crate each belongs to from the paths and symbols the compiler leaves behind, then disassembles them with iced-x86.</p>
+        <p>The decompile view comes from Ghidra's C++ decompiler, compiled into a small helper that Mekiki starts only when you need it. The app itself is a Tauri window.</p>
+      </div>
+      <ol class="steps">
+        <li><b>Read</b><span>Parse the ELF or PE, report anything unusual.</span></li>
+        <li><b>Attribute</b><span>Find functions and the crate and version each came from.</span></li>
+        <li><b>Disassemble</b><span>x86-64 and x86 instructions, with names for calls.</span></li>
+        <li><b>Decompile</b><span>On demand, one function at a time, in a separate process.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="install" class="section alt">
+    <div class="wrap">
+      <h2>Install</h2>
+      <div class="installs">
+        <div class="inst">
+          <h3>macOS</h3>
+          <p>Open <a href="https://github.com/RustSecJP/mekiki/releases/latest/download/Mekiki-macos-universal.dmg">Mekiki-macos-universal.dmg</a> and drag Mekiki to Applications. It runs on Apple silicon and Intel.</p>
+          <p>The app is not signed with an Apple certificate. The first time, right-click Mekiki in Applications, choose <b>Open</b>, then <b>Open</b> again. If macOS says it "is damaged", run once:</p>
+          <pre><code>xattr -dr com.apple.quarantine /Applications/Mekiki.app</code></pre>
+        </div>
+        <div class="inst">
+          <h3>Linux</h3>
+          <p><b>AppImage</b>, any distribution:</p>
+          <pre><code>chmod +x Mekiki-linux-x86_64.AppImage
+./Mekiki-linux-x86_64.AppImage</code></pre>
+          <p><b>Debian / Ubuntu:</b></p>
+          <pre><code>sudo apt install ./Mekiki-linux-amd64.deb</code></pre>
+        </div>
+        <div class="inst">
+          <h3>Windows</h3>
+          <p>Run <a href="https://github.com/RustSecJP/mekiki/releases/latest/download/Mekiki-windows-x64-setup.exe">Mekiki-windows-x64-setup.exe</a>. If SmartScreen says the publisher is unknown, choose <b>More info</b>, then <b>Run anyway</b>.</p>
+          <p>Then open a file with <b>File → Open</b> or drop it on the window. <b>Help → Tutorial</b> walks you through it using Mekiki's own executable.</p>
+        </div>
+      </div>
+      <p class="note">Checksums for every file are in <a href="https://github.com/RustSecJP/mekiki/releases/latest">SHA256SUMS</a> on the release page. Prefer the command line? The <code>unforge</code> CLI archives are there too.</p>
+    </div>
+  </section>
+
+  <section id="local" class="section">
+    <div class="wrap local">
+      <img src="mekiki.svg" alt="" width="56" height="56">
+      <div>
+        <h2>Everything runs locally</h2>
+        <p>Mekiki never uploads your files and does not phone home. It reads the file and never executes it. The decompiler runs in its own process, so a file built to confuse it cannot take the app down. No account, no telemetry.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="section alt">
+    <div class="wrap narrow">
+      <h2>FAQ</h2>
+      <details><summary>Does Mekiki run the binary?</summary><p>No. It only reads the bytes of the file.</p></details>
+      <details><summary>Which files can it open?</summary><p>Linux ELF and Windows PE (<code>.exe</code>, <code>.dll</code>) for x86-64 and x86. Rust binaries get the most out of it: crates, versions and panic notes. Other programs open too, with less detail.</p></details>
+      <details><summary>Does it work on stripped binaries?</summary><p>Yes. Crates and versions are still found from the paths the compiler leaves in the file, and fingerprint databases can put names back on functions.</p></details>
+      <details><summary>Do I need Ghidra or Java?</summary><p>No. The Ghidra decompiler is built into Mekiki as a small native helper. Nothing else to install.</p></details>
+      <details><summary>Why is the macOS app unsigned?</summary><p>Signing needs a paid Apple account. Every file is built by GitHub Actions from the public repository; check it against <code>SHA256SUMS</code>, or build Mekiki from source.</p></details>
+      <details><summary>Is it free?</summary><p>Yes. Mekiki is open source under MIT or Apache-2.0. The bundled Ghidra decompiler is Apache-2.0.</p></details>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div class="foot-brand"><img src="mekiki.svg" alt="" width="22" height="22"> Mekiki <span>by RustSecJP</span></div>
+    <nav>
+      <a href="https://github.com/RustSecJP/mekiki">GitHub</a>
+      <a href="https://github.com/RustSecJP/mekiki/releases/latest">Releases</a>
+      <a href="https://github.com/RustSecJP">RustSecJP</a>
+      <a href="https://hina-kura49.github.io/portfolio/">Made by kura</a>
+      <a href="https://x.com/hkurashina49" rel="me">X</a>
+      <a href="https://www.instagram.com/hina_kura49/" rel="me">Instagram</a>
+      <a href="https://www.facebook.com/profile.php?id=61597175063829" rel="me">Facebook</a>
+    </nav>
+    <p class="fine">RustSecJP is an unofficial community, not affiliated with the Rust Project or Rust Foundation. MIT OR Apache-2.0.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var base = 'https://github.com/RustSecJP/mekiki/releases/latest/download/';
+  var ua = navigator.userAgent, p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+  var os = null;
+  if (/iPhone|iPad|iPod|Android/i.test(ua)) os = null;
+  else if (/Mac/i.test(p) || /Mac OS X/.test(ua)) os = ['macOS', 'Mekiki-macos-universal.dmg'];
+  else if (/Win/i.test(p) || /Windows/.test(ua)) os = ['Windows', 'Mekiki-windows-x64-setup.exe'];
+  else if (/Linux/i.test(p) || /Linux/.test(ua)) os = ['Linux', 'Mekiki-linux-x86_64.AppImage'];
+  if (os) {
+    var a = document.getElementById('dl');
+    a.href = base + os[1];
+    document.getElementById('dl-label').textContent = 'Download for ' + os[0];
+  }
+})();
+</script>
+</body>
+</html>
