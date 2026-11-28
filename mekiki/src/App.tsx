@@ -218,6 +218,8 @@ export function App() {
         'ok',
       )
       if (r.rustc_commit) say(`Built with rustc commit ${r.rustc_commit}.`)
+      if (r.file.pdb_path) say(`PDB path in the debug directory: ${r.file.pdb_path}`)
+      if (r.imports.length > 0) say(`${formatCount(r.imports.length)} imported functions; calls through the IAT are labelled with dll!name.`)
       const sg = o.signatures
       if (sg && sg.added_starts > 0) say(`Found ${formatCount(sg.added_starts)} more function starts from calls and unwind tables.`)
       if (o.signatureNote) say(o.signatureNote)

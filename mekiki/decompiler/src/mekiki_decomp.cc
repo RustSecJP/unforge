@@ -5,8 +5,11 @@
 // usage: mekiki-decomp <specdir> <file> <target>, then commands on stdin:
 //   seg <vaddr> <fileoff> <filesz> <flags>   a PT_LOAD mapping (hex; flags like "RE")
 //   sym <addr> <name>                         a known function name (hex address)
-//   ptr <slot> <value>                        8-byte pointer the loader writes at slot (relocation)
+//   ptr <slot> <value>                        pointer the loader writes at slot (relocation)
 //   ext <slot> <name>                         slot points to the imported symbol <name>
+//                                             (an ELF GOT slot, a PE IAT slot)
+// Pointers (ptr / ext slots) are 8 bytes, or 4 when <target> is a 32-bit
+// language (x86:LE:32:...).
 //   lang <rust|c>                             output language for the next decompiles (default rust)
 //   decompile <addr>                          code for the function at addr, then
 //                                             "@@END <ms>ms <rss>kb" (rss: resident memory, 0 if unknown)
@@ -26,15 +29,16 @@ using std::istreambuf_iterator; using std::cin; using std::cout; using std::cerr
 
 struct Seg { uint8 vaddr, off, size; bool writable; };
 
-// Relocated pointer slots: slot address -> the 8-byte value the loader writes.
+// Relocated pointer slots: slot address -> the value the loader writes.
 typedef std::map<uint8, uint8> Overlays;
 
 class MemLoadImage : public LoadImage {
   vector<uint1> data;
   vector<Seg> segs;
   Overlays overlays;
+  int4 width;  // bytes per pointer slot
 public:
-  MemLoadImage(const string &f, const vector<Seg> &s, const Overlays &o) : LoadImage(f), segs(s), overlays(o) {
+  MemLoadImage(const string &f, const vector<Seg> &s, const Overlays &o, int4 w) : LoadImage(f), segs(s), overlays(o), width(w) {
     ifstream in(f, ios::binary);
     data.assign(istreambuf_iterator<char>(in), istreambuf_iterator<char>());
   }
@@ -52,9 +56,9 @@ public:
       }
     }
     // Apply relocations that touch [a, a + size).
-    auto it = overlays.lower_bound(a >= 7 ? a - 7 : 0);
+    auto it = overlays.lower_bound(a >= (uint8)(width - 1) ? a - (width - 1) : 0);
     for (; it != overlays.end() && it->first < a + size; ++it)
-      for (int4 b = 0; b < 8; ++b) {
+      for (int4 b = 0; b < width; ++b) {
         uint8 x = it->first + b;
         if (x >= a && x < a + size) ptr[x - a] = (uint1)(it->second >> (8 * b));
       }
@@ -65,7 +69,7 @@ public:
       if (!s.writable && s.size > 0) list.insertRange(spc, s.vaddr, s.vaddr + s.size - 1);
     // Relocated slots (the GOT) are written once at load time and then read-only
     // (RELRO), so their values can be propagated into indirect calls.
-    for (auto &o : overlays) list.insertRange(spc, o.first, o.first + 7);
+    for (auto &o : overlays) list.insertRange(spc, o.first, o.first + width - 1);
   }
   AddrSpace *spc = nullptr;
   string getArchType(void) const override { return "mekiki"; }
@@ -83,6 +87,8 @@ static bool isNoReturnName(const string &n) {
     "alloc::raw_vec::capacity_overflow", "alloc::raw_vec::handle_error", "std::process::exit",
     "std::process::abort", "std::sys::pal::unix::abort_internal", "__rust_start_panic",
     "rust_panic", "core::cell::panic_already_borrowed", "core::cell::panic_already_mutably_borrowed",
+    "std::sys::pal::windows::abort_internal", "!ExitProcess", "!_CxxThrowException",
+    "!RaiseFailFastException",
   };
   for (const char *c : contains)
     if (n.find(c) != string::npos) return true;
@@ -95,12 +101,13 @@ static bool isNoReturnName(const string &n) {
 class MemArchitecture : public SleighArchitecture {
   vector<Seg> segs;
   Overlays overlays;
+  int4 width;
 public:
-  MemArchitecture(const string &f, const string &t, const vector<Seg> &s, const Overlays &o, ostream *e)
-      : SleighArchitecture(f, t, e), segs(s), overlays(o) {}
+  MemArchitecture(const string &f, const string &t, const vector<Seg> &s, const Overlays &o, int4 w, ostream *e)
+      : SleighArchitecture(f, t, e), segs(s), overlays(o), width(w) {}
   void buildLoader(DocumentStorage &store) override {
     collectSpecFiles(*errorstream);
-    loader = new MemLoadImage(getFilename(), segs, overlays);
+    loader = new MemLoadImage(getFilename(), segs, overlays, width);
   }
   void postSpecFile(void) override {
     Architecture::postSpecFile();
@@ -135,15 +142,16 @@ extern "C" int mekiki_decomp_main(int argc, char **argv) {
   vector<pair<uint8, string>> syms;
   Overlays overlays;
   // Imports get stand-in addresses far from the image, named after the symbol,
-  // so a call through their GOT slot prints as a call to the name.
-  const uint8 IMPORT_BASE = 0xfff0000000000000ULL;
+  // so a call through their GOT / IAT slot prints as a call to the name.
+  const int4 width = string(argv[3]).find(":32:") != string::npos ? 4 : 8;
+  const uint8 IMPORT_BASE = width == 4 ? 0xfff00000ULL : 0xfff0000000000000ULL;
   uint8 nextImport = IMPORT_BASE;
   string lang = "rust-language";
   string line;
   MemArchitecture *arch = nullptr;
   auto ensure = [&]() {
     if (arch) return;
-    arch = new MemArchitecture(argv[2], argv[3], segs, overlays, &cerr);
+    arch = new MemArchitecture(argv[2], argv[3], segs, overlays, width, &cerr);
     DocumentStorage store;
     arch->init(store);
     // Like Ghidra's "Respect Read-only Flags" (on by default there): values in

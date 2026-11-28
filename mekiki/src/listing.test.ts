@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseAddress } from './format'
 import { tidy } from './panels/Decompile'
-import { buildListing, functionAt, parseCodeMap, rowOfAddress, RowKind } from './listing'
+import { absoluteOperand, buildListing, functionAt, parseCodeMap, rowOfAddress, RowKind } from './listing'
 import type { FunctionRow, Report, SectionRow } from './report'
 
 const sec = (index: number, name: string, addr: number, size: number, extra: Partial<SectionRow> = {}): SectionRow => ({
@@ -123,6 +123,14 @@ describe('parseAddress', () => {
     expect(parseAddress(' 1A2b ')).toBe(0x1a2b)
     expect(parseAddress('main')).toBeNull()
     expect(parseAddress('')).toBeNull()
+  })
+})
+
+describe('absoluteOperand', () => {
+  it('finds the slot of a 32-bit call through the IAT', () => {
+    expect(absoluteOperand('dword ptr [0x41f278]')).toBe(0x41f278)
+    expect(absoluteOperand('qword ptr [rax+0x10]')).toBeNull()
+    expect(absoluteOperand('rax, rbx')).toBeNull()
   })
 })
 

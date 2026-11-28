@@ -23,6 +23,8 @@ export interface Model {
   fnByStart: Map<number, number>
   /** exact function name -> index (first) */
   fnByName: Map<string, number>
+  /** PE: IAT slot address -> `dll!function` */
+  importBySlot: Map<number, string>
   /** functions that have instructions */
   codeFunctions: number
 }
@@ -53,7 +55,9 @@ export function buildModel(report: Report, code: CodeMap = new Map()): Model {
   report.function_rows.forEach((f, i) => {
     if (f.name && !fnByName.has(f.name)) fnByName.set(f.name, i)
   })
-  return { report, listing: buildListing(report, code), crateByName, groups, lowerNames, fnByStart, fnByName, codeFunctions: code.size }
+  const importBySlot = new Map<number, string>()
+  for (const i of report.imports ?? []) importBySlot.set(i.slot, `${i.dll}!${i.name}`)
+  return { report, listing: buildListing(report, code), crateByName, groups, lowerNames, fnByStart, fnByName, importBySlot, codeFunctions: code.size }
 }
 
 export function crateOfFunction(m: Model, fi: number): CrateRow | null {

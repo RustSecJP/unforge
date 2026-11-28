@@ -3,7 +3,8 @@
 unforge の解析結果を見るためのデスクトップアプリです（作成中）。Ghidra の CodeBrowser に近い窓の組み方で、Rust のバイナリに入っている crate・関数・セクションを見られます。
 
 - 解析はこのパソコンの中だけで行います。ファイルはどこにも送りません。
-- 中身は `crates/unforge-report`（unforge-elf と unforge-analysis の結果をまとめる部品）を Tauri から直接呼んでいます。
+- 中身は `crates/unforge-report`（unforge-elf、unforge-pe と unforge-analysis の結果をまとめる部品）を Tauri から直接呼んでいます。
+- Linux の ELF と Windows の PE（`.exe` / `.dll`、x86-64 と x86）を開けます。PE では、関数を `.pdata`・エクスポート・入口・TLS コールバックと呼び出し先から集め、IAT を通した呼び出しに `kernel32.dll!CreateFileW` のような名前を添えます。逆コンパイルには Ghidra の Windows 用の呼び出し規約（`x86:LE:64:default:windows` / `x86:LE:32:default:windows`）を使います。PDB は読まないので、MSVC でビルドされた PE の関数名は、指紋のデータベースで付く分だけです。
 
 ## 画面
 

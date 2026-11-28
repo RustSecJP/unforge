@@ -169,3 +169,10 @@ export function functionAt(fns: FunctionRow[], addr: number): number {
 
 /** File offset of `addr` inside block `b` (no bytes for NOBITS). */
 export const fileOffset = (b: SectionRow, addr: number) => b.offset + (addr - b.addr)
+
+/** The address of a bare absolute memory operand (`dword ptr [0x41f278]`),
+ * as 32-bit code calls through an import slot; null when there is none. */
+export function absoluteOperand(operands: string): number | null {
+  const m = /\[0x([0-9a-f]+)\]/i.exec(operands)
+  return m ? parseInt(m[1], 16) : null
+}

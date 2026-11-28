@@ -2,7 +2,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import type { InsnText } from '../backend'
 import { addr as fmtAddr, asciiOf, byteHex, formatBytes } from '../format'
-import { fileOffset, RowKind } from '../listing'
+import { absoluteOperand, fileOffset, RowKind } from '../listing'
 import { crateOfFunction, ownerLabel, shortName, type Model } from '../model'
 
 export const ROW_HEIGHT = 18
@@ -210,6 +210,10 @@ export function Listing({
             }
             const t = insnText(a)
             const targetFn = t?.target != null ? model.fnByStart.get(t.target) : undefined
+            // A call through an import slot: `call [rip+slot]` has the slot
+            // as its target; 32-bit `call dword ptr [0x41f278]` only names it.
+            const slot = t ? (t.target ?? absoluteOperand(t.operands)) : null
+            const imported = targetFn === undefined && slot != null ? model.importBySlot.get(slot) : undefined
             const branch = t && (t.flow === 'call' || t.flow === 'jump' || t.flow === 'cond_jump')
             return (
               <div key={r} className={cls} style={style} onMouseDown={() => onCursor(r)}>
@@ -235,6 +239,7 @@ export function Listing({
                         ; → {shortName(fns[targetFn].name, fns[targetFn].start)}
                       </a>
                     )}
+                    {imported !== undefined && <span className="l-xref">; → {imported}</span>}
                   </>
                 ) : (
                   <span className="l-comment">{t === null ? '??' : ''}</span>
