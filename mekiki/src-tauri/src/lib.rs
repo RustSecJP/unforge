@@ -54,10 +54,16 @@ fn open_file(
     }
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let started = std::time::Instant::now();
-    let sig = sstate.0.lock().map_err(|_| "busy".to_owned())?;
-    let result = unforge_report::report_with_signatures(&bytes, sig.db.as_ref());
-    let sig_files = sig.files.clone();
-    drop(sig);
+    // The fingerprint databases for this file's rustc (its std code differs
+    // between rustc versions).
+    let base = unforge_report::report(&bytes);
+    let commit = base.as_ref().ok().and_then(|r| r.rustc_commit.clone());
+    let choice = sstate.0.lock().map_err(|_| "busy".to_owned())?.for_commit(commit.as_deref());
+    let result = base.map(|mut r| {
+        let applied = unforge_report::signatures::apply(&mut r, &bytes, choice.db.as_ref());
+        (r, applied)
+    });
+    let sig_files = choice.files.clone();
     let elapsed_ms = started.elapsed().as_millis() as u64;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let (report, applied, spans, functions) = match result {
@@ -85,6 +91,7 @@ fn open_file(
         "report": report,
         "signatures": applied,
         "signature_files": sig_files,
+        "signature_note": choice.note,
     }))
 }
 

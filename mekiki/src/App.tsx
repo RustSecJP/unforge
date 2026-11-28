@@ -220,6 +220,7 @@ export function App() {
       if (r.rustc_commit) say(`Built with rustc commit ${r.rustc_commit}.`)
       const sg = o.signatures
       if (sg && sg.added_starts > 0) say(`Found ${formatCount(sg.added_starts)} more function starts from calls and unwind tables.`)
+      if (o.signatureNote) say(o.signatureNote)
       if (o.signatureFiles.length === 0) say('No fingerprint databases loaded: stripped functions stay unnamed. File → Load Fingerprint Databases…')
       else if (sg) say(`Fingerprints (${o.signatureFiles.join(', ')}): named ${formatCount(sg.named)} functions${sg.ambiguous ? `, ${formatCount(sg.ambiguous)} ambiguous` : ''}. Names marked ≈ are inferred.`, sg.named ? 'ok' : undefined)
       if (code.size > 0) {

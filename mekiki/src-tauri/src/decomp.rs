@@ -93,11 +93,11 @@ impl Decompiler {
     }
 
     fn stop(&mut self) {
-        if let Some(r) = self.running.take() {
-            if let Ok(mut c) = r.child.lock() {
-                let _ = c.kill();
-                let _ = c.wait();
-            }
+        if let Some(r) = self.running.take()
+            && let Ok(mut c) = r.child.lock()
+        {
+            let _ = c.kill();
+            let _ = c.wait();
         }
     }
 
@@ -124,10 +124,10 @@ impl Decompiler {
             let child = r.child.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(TIMEOUT);
-                if done.lock().is_ok_and(|d| !*d) {
-                    if let Ok(mut c) = child.lock() {
-                        let _ = c.kill();
-                    }
+                if done.lock().is_ok_and(|d| !*d)
+                    && let Ok(mut c) = child.lock()
+                {
+                    let _ = c.kill();
                 }
             });
         }

@@ -12,6 +12,8 @@ export interface Opened {
   signatures: SignaturesApplied | null
   /** fingerprint database files in use */
   signatureFiles: string[]
+  /** why those databases were chosen (rustc version match), if worth saying */
+  signatureNote: string | null
   readRange: (offset: number, len: number) => Promise<Uint8Array>
   /** See unforge_report::code::code_map */
   codeMap: () => Promise<Uint8Array>
@@ -53,7 +55,7 @@ export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in
 async function openPathInTauri(path: string, command = 'open_file'): Promise<Opened> {
   const { invoke } = await import('@tauri-apps/api/core')
   try {
-    const r = await invoke<{ name: string; path: string; elapsed_ms: number; report: unknown; signatures: SignaturesApplied | null; signature_files: string[] }>(
+    const r = await invoke<{ name: string; path: string; elapsed_ms: number; report: unknown; signatures: SignaturesApplied | null; signature_files: string[]; signature_note: string | null }>(
       command,
       command === 'open_file' ? { path } : {},
     )
@@ -64,6 +66,7 @@ async function openPathInTauri(path: string, command = 'open_file'): Promise<Ope
       outcome: toOutcome(r.report),
       signatures: r.signatures,
       signatureFiles: r.signature_files,
+      signatureNote: r.signature_note,
       readRange: async (offset, len) => new Uint8Array(await invoke<ArrayBuffer>('read_range', { offset, len })),
       codeMap: async () => new Uint8Array(await invoke<ArrayBuffer>('code_map')),
       disasmAt: (addrs) => invoke<(InsnText | null)[]>('disasm_at', { addrs }),
@@ -72,7 +75,7 @@ async function openPathInTauri(path: string, command = 'open_file'): Promise<Ope
     }
   } catch (e) {
     const name = path.split(/[\\/]/).pop() ?? path
-    return { name, path, elapsedMs: 0, outcome: { ok: false, error: String(e) }, signatures: null, signatureFiles: [], ...none }
+    return { name, path, elapsedMs: 0, outcome: { ok: false, error: String(e) }, signatures: null, signatureFiles: [], signatureNote: null, ...none }
   }
 }
 
@@ -87,6 +90,7 @@ async function openFileInBrowser(file: File): Promise<Opened> {
     outcome,
     signatures: body?.signatures ?? null,
     signatureFiles: body?.signature_files ?? [],
+    signatureNote: body?.signature_note ?? null,
     readRange: async (offset, len) => new Uint8Array(await file.slice(offset, offset + len).arrayBuffer()),
     codeMap: async () => new Uint8Array(await (await fetch('/__mekiki/code_map')).arrayBuffer()),
     disasmAt: async (addrs) => (await fetch('/__mekiki/disasm', { method: 'POST', body: JSON.stringify(addrs) })).json(),
