@@ -1,0 +1,25 @@
+# Rust releases to build std fingerprint databases for
+# (.github/workflows/sigs.yml, job `std`). One exact release per line;
+# `#` starts a comment. Read by sigs/scripts/spec.py.
+#
+# Every release (point releases too) is a separate rustc commit with its own
+# precompiled std, so each one gets its own database
+# (std-<version>-<commit>.db). The list covers the last eight minor releases
+# with their point releases, and must contain the toolchain pinned in
+# ../rust-toolchain.toml. To add a release, add a line; nightlies and betas
+# are not supported (their std changes daily).
+1.93.0
+1.93.1
+1.94.0
+1.94.1
+1.95.0
+1.96.0
+1.96.1
+1.97.0
+1.97.1
+1.98.0
+1.98.1
+1.99.0
+1.99.1
+1.100.0
+1.100.1

@@ -1,0 +1,175 @@
+# crates.io crates to build fingerprint databases for
+# (.github/workflows/sigs.yml, jobs `crate-build` and `crate-db`). Read by
+# sigs/scripts/spec.py.
+#
+# Picked for how often they show up in Rust malware and offensive tooling:
+#   async / networking  tokio, reqwest, hyper, rustls, ring
+#   encoding            serde_json (and serde through it), base64
+#   crypto              aes-gcm, chacha20poly1305, sha2, rand, ring
+#   compression         flate2, zip
+#   system              sysinfo, walkdir, chrono, clap, regex
+#   string obfuscation  obfstr, litcrypt
+# Windows-only crates (winapi, windows-sys) are left out: unforge reads ELF
+# only.
+#
+# No per-crate harness is written. For each entry the workflow fetches the
+# published source with cargo, and builds the crate's OWN tests, examples
+# and benches (`cargo test --no-run --release`): they call most of its API,
+# so the executables contain most of its code, with symbols. Feature sets
+# tried, in order, until one builds:
+#   1. `features` below (when given) with --all-targets
+#   2. --all-features --all-targets
+#   3. --all-features           (lib, bins, tests, examples; no benches)
+#   4. default features, --all-targets
+#   5. default features
+#   6. --lib (the unit tests only)
+#
+# The build scripts and proc macros of these crates run ONLY in GitHub
+# Actions (sigs.yml), never on a developer machine.
+#
+# To add a crate: add a [[crate]] entry with an exact version (several
+# entries for several versions). `features` is a comma-separated list;
+# `env` sets compile-time environment variables some crates need. Both are
+# validated strictly (they end up in a cargo command line). Old versions
+# matter: malware often pins an old release, and every version has its own
+# code.
+
+schema = "unforge-sigs-crates/1"
+
+# rustc releases the crates are built with: one database per crate,
+# version and rustc. Generic code is compiled by the rustc of the
+# malware, so a database matches best for the same rustc. Each release
+# added here multiplies the number of jobs.
+rustc = ["1.99.0"]
+
+# Cargo profile settings (CARGO_PROFILE_RELEASE_* and _BENCH_*, which
+# override the crate's own [profile.*]). The defaults of `cargo build
+# --release`, but symbols kept and DWARF dropped (strip = "debuginfo"):
+# the fingerprints need the symbol table, not the debug info, and the
+# executables stay small. `enabled = false` ones are defined but not built.
+[[profile]]
+name = "o3"
+opt_level = "3"
+
+[[profile]]
+name = "oz"
+opt_level = "z"
+enabled = false
+
+[[crate]]
+name = "tokio"
+version = "1.54.1"
+features = "full,test-util"
+
+[[crate]]
+name = "tokio"
+version = "1.53.3"
+features = "full,test-util"
+
+[[crate]]
+name = "reqwest"
+version = "0.13.5"
+
+[[crate]]
+name = "reqwest"
+version = "0.12.28"
+
+[[crate]]
+name = "hyper"
+version = "1.13.0"
+features = "full"
+
+[[crate]]
+name = "serde_json"
+version = "1.0.154"
+
+[[crate]]
+name = "rand"
+version = "0.10.4"
+
+[[crate]]
+name = "rand"
+version = "0.8.8"
+
+[[crate]]
+name = "base64"
+version = "0.23.1"
+
+[[crate]]
+name = "base64"
+version = "0.22.1"
+
+[[crate]]
+name = "aes-gcm"
+version = "0.11.1"
+
+[[crate]]
+name = "aes-gcm"
+version = "0.10.3"
+
+[[crate]]
+name = "chacha20poly1305"
+version = "0.11.0"
+
+[[crate]]
+name = "chacha20poly1305"
+version = "0.10.1"
+
+[[crate]]
+name = "sha2"
+version = "0.11.2"
+
+[[crate]]
+name = "sha2"
+version = "0.10.9"
+
+[[crate]]
+name = "ring"
+version = "0.17.14"
+
+[[crate]]
+name = "rustls"
+version = "0.23.46"
+features = "ring,std,tls12,logging"
+
+[[crate]]
+name = "sysinfo"
+version = "0.40.4"
+
+[[crate]]
+name = "clap"
+version = "4.6.10"
+
+[[crate]]
+name = "clap"
+version = "4.5.61"
+
+[[crate]]
+name = "regex"
+version = "1.13.2"
+
+[[crate]]
+name = "flate2"
+version = "1.1.11"
+
+[[crate]]
+name = "zip"
+version = "9.8.2"
+
+[[crate]]
+name = "walkdir"
+version = "2.5.1"
+
+[[crate]]
+name = "chrono"
+version = "0.4.45"
+
+[[crate]]
+name = "obfstr"
+version = "0.4.6"
+
+[[crate]]
+name = "litcrypt"
+version = "0.4.0"
+# litcrypt's macros read the key at compile time.
+env = { LITCRYPT_ENCRYPT_KEY = "unforge-sigs" }
