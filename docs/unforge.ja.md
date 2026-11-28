@@ -1,6 +1,6 @@
 # unforge
 
-Rust でビルドされたバイナリを、Rust として読むための道具です（作成中、v0.1）。
+Rust でビルドされたバイナリを、Rust として読むための部品の集まりです。デスクトップアプリ [Mekiki](../README.ja.md) の中身として使っています。
 
 今あるのは、その土台となる ELF と Windows の PE（`.exe` / `.dll`）の読み取りと、x86 / x86-64 の逆アセンブルと、ストリップされたバイナリの関数に指紋で名前を付ける仕組みです。
 
@@ -22,11 +22,11 @@ Rust でビルドされたバイナリを、Rust として読むための道具�
   - 命令の解読には [iced-x86](https://crates.io/crates/iced-x86) を使います。ワークスペースでただ一つのサードパーティの命令デコーダーで、使う機能（`std`、`decoder`、`intel`、`instr_info`）だけを有効にしています。
   - 解読できないバイトは 1 バイトの `(bad)` として報告し、次のバイトから続けます。どんな入力でもパニックしません。
 - **unforge-sigs**: 関数の指紋（配置で変わるアドレスや分岐先を伏せた命令列のハッシュ）を作り、シンボルの残っているバイナリから指紋のデータベースを作って、ストリップされたバイナリの関数に名前を付けます（IDA の FLIRT、Ghidra の Function ID と同じ考え方）。
-  - 同じ std を含む別のプログラムどうしで、精度 99〜100 %、再現率 85〜87 %（testdata のプログラム、リリースビルド）。詳しい数字と正規化の規則は [crates/unforge-sigs/README.md](crates/unforge-sigs/README.md) にあります。
+  - 同じ std を含む別のプログラムどうしで、精度 99〜100 %、再現率 85〜87 %（testdata のプログラム、リリースビルド）。詳しい数字と正規化の規則は [crates/unforge-sigs/README.md](../crates/unforge-sigs/README.md) にあります。
   - データベースは版付きのバイナリ形式で、同じ入力からは必ず同じバイト列になります。
 - **unforge**（CLI）: ELF のヘッダー、セグメント、セクション、シンボルを表示します。PE のヘッダー、セクション、インポート、エクスポート、`.pdata`、TLS コールバックを表示します（`unforge pe`）。x86 / x86-64 の関数を、ELF でも PE でも逆アセンブルして表示します（呼び出し先が見つかった関数や、PE の IAT を通した呼び出しなら、その名前も添えます）。指紋のデータベースを作り、それで関数に名前を付けます。
 - **unforge-report**: 解析の結果（関数、crate とその版、セクション、セグメント、警告）を、画面で使う形にまとめます。
-- **Mekiki**（`mekiki/`）: 解析の結果を見るデスクトップアプリです。詳しくは [mekiki/README.md](mekiki/README.md) を見てください。
+- **Mekiki**（`mekiki/`）: 解析の結果を見るデスクトップアプリです。詳しくは [mekiki/README.md](../mekiki/README.md) を見てください。
 
 ```sh
 cargo run -p unforge -- elf --header --segments --sections --symbols path/to/binary
@@ -48,11 +48,11 @@ cargo test
 - `crates/unforge-elf/tests/`: 境界の試験、ファズで見つかった入力の再実行、実際のバイナリとの突き合わせ（`object` と `goblin` の結果と比べる）。
 - `crates/unforge-disasm/tests/`: 試験の実行ファイル自身の関数を逆アセンブルし、`objdump -d -M intel` の結果と命令の区切りと名前を比べます（objdump がなければ飛ばします）。壊れた ELF や乱数のバイト列でパニックしないことも確かめます。
 - `crates/unforge-sigs/tests/`: 試験の実行ファイル自身と、その場で `rustc` でビルドした std だけの小さなプログラム二つ（ストリップは `objcopy`）で、名前の付け直しの精度と再現率を確かめます（rustc か objcopy がなければ飛ばします）。壊れた ELF や乱数のバイト列、壊れたデータベースでパニックしないことも確かめます。
-- `testdata/`: 試験に使う実際のバイナリを作るための Rust のプログラムと、ビルド用のスクリプト（`testdata/build.sh`）。作ったバイナリは commit していません。詳しくは [testdata/README.md](testdata/README.md) を見てください。
-- `fuzz/`: cargo-fuzz のファズ対象。既知の違いは [fuzz/KNOWN_DIVERGENCES.md](fuzz/KNOWN_DIVERGENCES.md) にあります。
+- `testdata/`: 試験に使う実際のバイナリを作るための Rust のプログラムと、ビルド用のスクリプト（`testdata/build.sh`）。作ったバイナリは commit していません。詳しくは [testdata/README.md](../testdata/README.md) を見てください。
+- `fuzz/`: cargo-fuzz のファズ対象。既知の違いは [fuzz/KNOWN_DIVERGENCES.md](../fuzz/KNOWN_DIVERGENCES.md) にあります。
 
 ## ライセンス
 
-MIT または Apache-2.0 のどちらかを選んで利用できます（[LICENSE-MIT](LICENSE-MIT)、[LICENSE-APACHE](LICENSE-APACHE)）。
+MIT または Apache-2.0 のどちらかを選んで利用できます（[LICENSE-MIT](../LICENSE-MIT)、[LICENSE-APACHE](../LICENSE-APACHE)）。
 
 RustSecJP は非公式のコミュニティです。Rust Project、Rust Foundation とは提携していません。
